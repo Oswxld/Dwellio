@@ -253,8 +253,35 @@ export default function App() {
   // ============================================================
 
   return (
-    <DashboardPage
-      user={user}
-    />
+    <div
+      onClickCapture={event => {
+        const target = event.target
+
+        if (!(target instanceof Element)) {
+          return
+        }
+
+        const button = target.closest('button')
+
+        if (!button) {
+          return
+        }
+
+        const label =
+          button.textContent
+            ?.replace(/\s+/g, ' ')
+            .trim()
+
+        if (label === '◈ Billing' || label === 'Billing') {
+          event.preventDefault()
+          event.stopPropagation()
+          window.location.assign('/billing')
+        }
+      }}
+    >
+      <DashboardPage
+        user={user}
+      />
+    </div>
   )
 }
