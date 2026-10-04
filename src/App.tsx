@@ -10,6 +10,9 @@ import type {
 
 import { supabase } from './lib/supabase'
 
+import DwellioShell
+  from './layouts/DwellioShell'
+
 import AuthPage from './pages/AuthPage'
 import OnboardingPage from './pages/OnboardingPage'
 import DashboardPage from './pages/DashboardPage'
@@ -244,7 +247,17 @@ export default function App() {
     pathname ===
     '/billing'
   ) {
-    return <BillingPage />
+    return (
+      <DwellioShell
+        user={user}
+        organizationId={organizationId}
+        activeNav="Billing"
+      >
+        <div className="dwellio-embedded-billing">
+          <BillingPage />
+        </div>
+      </DwellioShell>
+    )
   }
 
 
@@ -253,35 +266,16 @@ export default function App() {
   // ============================================================
 
   return (
-    <div
-      onClickCapture={event => {
-        const target = event.target
-
-        if (!(target instanceof Element)) {
-          return
-        }
-
-        const button = target.closest('button')
-
-        if (!button) {
-          return
-        }
-
-        const label =
-          button.textContent
-            ?.replace(/\s+/g, ' ')
-            .trim()
-
-        if (label?.includes('Billing')) {
-          event.preventDefault()
-          event.stopPropagation()
-          window.location.assign('/billing')
-        }
-      }}
+    <DwellioShell
+      user={user}
+      organizationId={organizationId}
+      activeNav="Dashboard"
     >
-      <DashboardPage
-        user={user}
-      />
-    </div>
+      <div className="dwellio-embedded-dashboard">
+        <DashboardPage
+          user={user}
+        />
+      </div>
+    </DwellioShell>
   )
 }
