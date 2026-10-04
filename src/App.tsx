@@ -272,7 +272,7 @@ export default function App() {
             ?.replace(/\s+/g, ' ')
             .trim()
 
-        if (label === '◈ Billing' || label === 'Billing') {
+        if (label?.includes('Billing')) {
           event.preventDefault()
           event.stopPropagation()
           window.location.assign('/billing')
