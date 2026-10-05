@@ -878,10 +878,10 @@ export default function BillingPage() {
                     type="button"
                     onClick={() => void approveAllDrafts()}
                     disabled={approvingAll || allDraftsApproved || dashboard.draftCount === 0}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-[#111e19] shadow-[0_8px_24px_rgba(16,33,28,0.07)] transition hover:bg-[#e7f7ee] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1e6a59] px-5 py-3 text-sm font-bold text-white shadow-[0_10px_28px_rgba(30,106,89,0.32)] ring-1 ring-[#1e6a59]/20 transition hover:-translate-y-0.5 hover:bg-[#175748] hover:shadow-[0_14px_34px_rgba(30,106,89,0.38)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
                   >
-                    <span className="material-symbols-outlined text-[19px] text-[#1e6a59]">{approvingAll ? 'progress_activity' : 'done_all'}</span>
-                    {allDraftsApproved ? 'All drafts approved' : approvingAll ? 'Approving drafts…' : 'Approve all drafts'}
+                    <span className="material-symbols-outlined text-[19px] text-white">{approvingAll ? 'progress_activity' : 'done_all'}</span>
+                    {allDraftsApproved ? 'All drafts approved' : approvingAll ? 'Approving drafts…' : 'Approve all drafts at once'}
                   </button>
                 </div>
 
