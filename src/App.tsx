@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useEffect,
   useState,
 } from 'react'
@@ -8,21 +10,36 @@ import type {
   User,
 } from '@supabase/supabase-js'
 
+import {
+  useLocation,
+  useNavigate,
+} from 'react-router-dom'
+
 import { supabase } from './lib/supabase'
 
 import DwellioShell
   from './layouts/DwellioShell'
 
+import PageSkeleton
+  from './components/loading/PageSkeleton'
+
 import AuthPage from './pages/AuthPage'
 import OnboardingPage from './pages/OnboardingPage'
-import DashboardPage from './pages/DashboardPage'
 import TenantOnboardingPage
   from './pages/TenantOnboardingPage'
-import BillingPage
-  from './pages/BillingPage'
 
+const DashboardPage = lazy(
+  () => import('./pages/DashboardPage'),
+)
+
+const BillingPage = lazy(
+  () => import('./pages/BillingPage'),
+)
 
 export default function App() {
+  const location = useLocation()
+  const navigate = useNavigate()
+
   const [session, setSession] =
     useState<Session | null>(null)
 
@@ -40,7 +57,6 @@ export default function App() {
 
   const [organizationId, setOrganizationId] =
     useState<string | null>(null)
-
 
   async function loadContext(
     currentUser: User,
@@ -68,7 +84,6 @@ export default function App() {
       .limit(1)
       .maybeSingle()
 
-
     const organization =
       Array.isArray(
         data?.organizations,
@@ -76,17 +91,14 @@ export default function App() {
         ? data.organizations[0]
         : data?.organizations
 
-
     setHasOrganization(
       Boolean(data),
     )
-
 
     setOrganizationId(
       data?.organization_id
       ?? null,
     )
-
 
     setSetupCompleted(
       organization
@@ -94,7 +106,6 @@ export default function App() {
       === true,
     )
   }
-
 
   useEffect(() => {
     supabase.auth
@@ -108,7 +119,6 @@ export default function App() {
           data.session?.user
           ?? null,
         )
-
 
         if (
           data.session?.user
@@ -124,7 +134,6 @@ export default function App() {
           setLoading(false)
         }
       })
-
 
     const {
       data: listener,
@@ -143,7 +152,6 @@ export default function App() {
               nextSession?.user
               ?? null,
             )
-
 
             if (
               nextSession?.user
@@ -167,13 +175,11 @@ export default function App() {
           },
         )
 
-
     return () =>
       listener
         .subscription
         .unsubscribe()
   }, [])
-
 
   if (loading) {
     return (
@@ -183,14 +189,12 @@ export default function App() {
     )
   }
 
-
   if (
     !session ||
     !user
   ) {
     return <AuthPage />
   }
-
 
   if (
     !hasOrganization ||
@@ -208,14 +212,8 @@ export default function App() {
     )
   }
 
-
   const pathname =
-    window.location.pathname
-
-
-  // ============================================================
-  // TENANT ONBOARDING
-  // ============================================================
+    location.pathname
 
   if (
     pathname ===
@@ -227,55 +225,51 @@ export default function App() {
           organizationId
         }
         onCancel={() => {
-          window.location.href =
-            '/'
+          navigate('/')
         }}
         onComplete={() => {
-          window.location.href =
-            '/'
+          navigate('/')
         }}
       />
     )
   }
 
-
-  // ============================================================
-  // BILLING
-  // ============================================================
-
-  if (
-    pathname ===
-    '/billing'
-  ) {
-    return (
-      <DwellioShell
-        user={user}
-        organizationId={organizationId}
-        activeNav="Billing"
-      >
-        <div className="dwellio-embedded-billing">
-          <BillingPage />
-        </div>
-      </DwellioShell>
-    )
-  }
-
-
-  // ============================================================
-  // DASHBOARD / DEFAULT
-  // ============================================================
+  const billingActive =
+    pathname === '/billing'
 
   return (
     <DwellioShell
       user={user}
       organizationId={organizationId}
-      activeNav="Dashboard"
+      activeNav={
+        billingActive
+          ? 'Billing'
+          : 'Dashboard'
+      }
     >
-      <div className="dwellio-embedded-dashboard">
-        <DashboardPage
-          user={user}
-        />
-      </div>
+      <Suspense
+        fallback={
+          <PageSkeleton
+            variant={
+              billingActive
+                ? 'billing'
+                : 'dashboard'
+            }
+          />
+        }
+      >
+        {billingActive ? (
+          <div className="dwellio-embedded-billing">
+            <BillingPage />
+          </div>
+        ) : (
+          <div className="dwellio-embedded-dashboard">
+            <DashboardPage
+              user={user}
+            />
+          </div>
+        )}
+      </Suspense>
     </DwellioShell>
   )
 }
