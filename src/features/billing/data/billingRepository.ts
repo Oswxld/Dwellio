@@ -625,6 +625,21 @@ export async function approveBillDraft(billDraftId: string) {
   }
 }
 
+export async function approveAllBillDrafts(billingCycleId: string) {
+  const { data, error } = await supabase
+    .from('bill_drafts')
+    .update({
+      status: 'approved',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('billing_cycle_id', billingCycleId)
+    .in('status', ['draft', 'reviewed'])
+    .select('id')
+
+  if (error) throw error
+  return data?.length ?? 0
+}
+
 export async function finalizeBillingCycle(billingCycleId: string) {
   const { data, error } = await supabase.rpc('finalize_billing_cycle', {
     p_billing_cycle_id: billingCycleId,
