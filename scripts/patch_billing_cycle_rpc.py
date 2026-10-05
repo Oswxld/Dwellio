@@ -1,8 +1,8 @@
 from pathlib import Path
 import re
 
-path = Path('src/features/billing/data/billingRepository.ts')
-text = path.read_text()
+repo_path = Path('src/features/billing/data/billingRepository.ts')
+text = repo_path.read_text()
 
 pattern = re.compile(
     r"export async function createCurrentBillingCycle\(.*?\n}\n\nexport async function fetchBillingDashboard",
@@ -51,4 +51,16 @@ updated, count = pattern.subn(replacement, text, count=1)
 if count != 1:
     raise SystemExit(f'Expected to patch one createCurrentBillingCycle function, patched {count}.')
 
-path.write_text(updated)
+repo_path.write_text(updated)
+
+page_path = Path('src/pages/BillingPage.tsx')
+page = page_path.read_text()
+old = 'return <PageSkeleton />'
+new = 'return <PageSkeleton variant="billing" />'
+
+if old in page:
+    page = page.replace(old, new, 1)
+elif new not in page:
+    raise SystemExit('Could not find BillingPage PageSkeleton usage to patch.')
+
+page_path.write_text(page)
