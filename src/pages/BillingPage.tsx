@@ -14,6 +14,7 @@ import type { BillingReadingsWorkspace } from '../features/billing/data/billingR
 import {
   approveAllBillDrafts,
   approveBillDraft,
+  correctMeterReading,
   createCurrentBillingCycle,
   fetchBillingCycles,
   fetchBillingDashboard,
@@ -23,6 +24,7 @@ import {
 } from '../features/billing/data/billingRepository'
 
 import type {
+  BillChargeDetail,
   BillDraftRow,
   BillingCycle,
   BillingDashboardData,
@@ -38,6 +40,11 @@ type BillingStep =
   | 'review'
   | 'invoices'
   | 'send'
+
+type ReadingCorrectionTarget = {
+  chargeDescription: string
+  detail: BillChargeDetail
+}
 
 const emptyDashboard: BillingDashboardData = {
   leaseCount: 0,
@@ -125,6 +132,9 @@ export default function BillingPage() {
   const [openingDraft, setOpeningDraft] = useState(false)
   const [approvingDraft, setApprovingDraft] = useState(false)
   const [approvingAll, setApprovingAll] = useState(false)
+  const [readingCorrection, setReadingCorrection] = useState<ReadingCorrectionTarget | null>(null)
+  const [newReadingValue, setNewReadingValue] = useState('')
+  const [savingReadingCorrection, setSavingReadingCorrection] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
@@ -395,7 +405,7 @@ export default function BillingPage() {
       await refreshDashboard()
       setSuccess(
         approvedNow > 0
-          ? `${approvedNow} remaining invoice draft${approvedNow === 1 ? '' : 's'} approved.`
+          ? `${approvedNow} invoice draft${approvedNow === 1 ? '' : 's'} approved for ${cycleLabel(cycle)}.`
           : 'All invoice drafts are already approved.',
       )
     } catch (approvalError) {
@@ -403,6 +413,80 @@ export default function BillingPage() {
       setError(errorMessage(approvalError, 'Could not approve all invoice drafts.'))
     } finally {
       setApprovingAll(false)
+    }
+  }
+
+  function openReadingCorrection(
+    chargeDescription: string,
+    detail: BillChargeDetail,
+  ) {
+    if (
+      !detail.current_reading_id ||
+      detail.current_reading === null ||
+      detail.previous_reading === null
+    ) {
+      return
+    }
+
+    setError('')
+    setSuccess('')
+    setReadingCorrection({ chargeDescription, detail })
+    setNewReadingValue(String(detail.current_reading))
+  }
+
+  async function saveReadingCorrection() {
+    if (!readingCorrection || !selectedDraft || !property || !cycle) return
+
+    const nextValue = Number(newReadingValue)
+    const previousValue = readingCorrection.detail.previous_reading
+
+    if (!Number.isFinite(nextValue) || nextValue < 0) {
+      setError('Enter a valid meter reading.')
+      return
+    }
+
+    if (previousValue !== null && nextValue < previousValue) {
+      setError(`Current reading cannot be lower than the previous reading of ${previousValue}.`)
+      return
+    }
+
+    if (!readingCorrection.detail.current_reading_id) {
+      setError('This usage charge is missing its current meter reading record.')
+      return
+    }
+
+    try {
+      setSavingReadingCorrection(true)
+      setError('')
+      setSuccess('')
+
+      await correctMeterReading(
+        readingCorrection.detail.current_reading_id,
+        nextValue,
+      )
+
+      const nextDashboard = await fetchBillingDashboard(property.id, cycle)
+      setDashboard(nextDashboard)
+
+      const refreshedDraft = nextDashboard.drafts.find(
+        draft => draft.id === selectedDraft.draft.id,
+      )
+
+      if (!refreshedDraft) {
+        throw new Error('The recalculated draft could not be refetched.')
+      }
+
+      setSelectedDraft(await fetchDraftDetail(refreshedDraft))
+      setReadingCorrection(null)
+      setNewReadingValue('')
+      setSuccess(
+        `${readingCorrection.chargeDescription} reading updated. The invoice draft was recalculated and refetched.`,
+      )
+    } catch (correctionError) {
+      console.error('[BillingPage] meter reading correction failed', correctionError)
+      setError(errorMessage(correctionError, 'Could not correct this meter reading.'))
+    } finally {
+      setSavingReadingCorrection(false)
     }
   }
 
@@ -797,7 +881,7 @@ export default function BillingPage() {
                     className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-[#111e19] shadow-[0_8px_24px_rgba(16,33,28,0.07)] transition hover:bg-[#e7f7ee] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <span className="material-symbols-outlined text-[19px] text-[#1e6a59]">{approvingAll ? 'progress_activity' : 'done_all'}</span>
-                    {allDraftsApproved ? 'All drafts approved' : approvingAll ? 'Approving drafts…' : 'Approve all remaining'}
+                    {allDraftsApproved ? 'All drafts approved' : approvingAll ? 'Approving drafts…' : 'Approve all drafts'}
                   </button>
                 </div>
 
@@ -846,7 +930,7 @@ export default function BillingPage() {
                       <span className={`material-symbols-outlined flex h-10 w-10 items-center justify-center rounded-full ${allDraftsApproved ? 'bg-[#a8f1db]/55 text-[#005142]' : 'bg-[#fff8df] text-[#8b6508]'}`}>{allDraftsApproved ? 'verified' : 'rule'}</span>
                       <div>
                         <div className="font-semibold text-[#111e19]">{dashboard.approvedCount} / {dashboard.draftCount} drafts approved</div>
-                        <div className="mt-0.5 text-xs text-[#737875]">{allDraftsApproved ? 'Review is complete. These drafts are ready for finalization.' : 'Approve individually or use Approve all remaining.'}</div>
+                        <div className="mt-0.5 text-xs text-[#737875]">{allDraftsApproved ? 'Review is complete. These drafts are ready for finalization.' : 'Approve individually or approve the whole billing cycle at once.'}</div>
                       </div>
                     </div>
                     <div className="w-full sm:w-72">
@@ -921,7 +1005,48 @@ export default function BillingPage() {
 
               <div className="py-6">
                 <div className="mb-4 flex items-end justify-between gap-4"><div><div className="font-[Newsreader] text-xl font-medium text-[#111e19]">Current charges</div><div className="mt-1 text-xs text-[#737875]">Charges calculated for this billing cycle</div></div><div className="font-mono text-lg font-bold text-[#111e19]">{money(selectedDraft.draft.current_charges)}</div></div>
-                <div className="overflow-hidden rounded-xl bg-[#edfdf3]/70"><div className="divide-y divide-[#c2c8c4]/25">{selectedDraft.charges.map(charge => (<div key={charge.id} className="grid gap-3 p-4 md:grid-cols-[1.4fr_1fr_auto] md:items-center"><div><div className="font-semibold text-[#111e19]">{charge.description}</div><div className="mt-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-[#737875]">{charge.charge_type}</div></div><div className="text-xs leading-5 text-[#424845]">{charge.details.length > 0 ? charge.details.map(detail => (<div key={detail.id}>{detail.previous_reading !== null && detail.current_reading !== null ? `Prev ${detail.previous_reading} → Current ${detail.current_reading} · ${detail.consumption ?? 0} units × ${money(detail.rate ?? 0)}` : 'No meter detail for this charge.'}</div>)) : 'Fixed charge'}</div><div className="font-mono font-bold text-[#111e19]">{money(charge.amount)}</div></div>))}</div></div>
+                <div className="overflow-hidden rounded-xl bg-[#edfdf3]/70"><div className="divide-y divide-[#c2c8c4]/25">{selectedDraft.charges.map(charge => {
+                  const correctableDetail = charge.details.find(detail =>
+                    detail.current_reading_id !== null &&
+                    detail.previous_reading !== null &&
+                    detail.current_reading !== null
+                  )
+
+                  return (
+                    <div key={charge.id} className="grid gap-3 p-4 md:grid-cols-[1.35fr_1.35fr_auto_auto] md:items-center">
+                      <div>
+                        <div className="font-semibold text-[#111e19]">{charge.description}</div>
+                        <div className="mt-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-[#737875]">{charge.charge_type}</div>
+                      </div>
+                      <div className="text-xs leading-5 text-[#424845]">
+                        {charge.details.length > 0
+                          ? charge.details.map(detail => (
+                              <div key={detail.id}>
+                                {detail.previous_reading !== null && detail.current_reading !== null
+                                  ? `Prev ${detail.previous_reading} → Current ${detail.current_reading} · ${detail.consumption ?? 0} units × ${money(detail.rate ?? 0)}`
+                                  : 'No meter detail for this charge.'}
+                              </div>
+                            ))
+                          : 'Fixed charge'}
+                      </div>
+                      <div className="font-mono font-bold text-[#111e19]">{money(charge.amount)}</div>
+                      <div className="md:text-right">
+                        {correctableDetail ? (
+                          <button
+                            type="button"
+                            onClick={() => openReadingCorrection(charge.description, correctableDetail)}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-[#1e6a59]/10 px-3 py-2 text-xs font-semibold text-[#1e6a59] transition hover:bg-[#1e6a59]/20"
+                          >
+                            <span className="material-symbols-outlined text-[16px]">edit</span>
+                            Correct reading
+                          </button>
+                        ) : (
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-[#737875]">Fixed</span>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}</div></div>
               </div>
 
               <div className="border-t border-[#c2c8c4]/40 py-6">
@@ -931,6 +1056,80 @@ export default function BillingPage() {
 
               <div className="border-t border-[#c2c8c4]/40 pt-6"><div className="rounded-2xl bg-[#e7f7ee] p-5 sm:flex sm:items-center sm:justify-between"><div className="space-y-1 text-sm text-[#424845]"><div>Current charges: <strong className="text-[#111e19]">{money(selectedDraft.draft.current_charges)}</strong></div><div>Carried arrears: <strong className="text-[#111e19]">{money(selectedDraft.draft.previous_balance)}</strong></div></div><div className="mt-4 sm:mt-0 sm:text-right"><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#737875]">Total payable</div><div className="mt-1 font-[Newsreader] text-4xl font-medium tracking-tight text-[#111e19]">{money(selectedDraft.draft.total_payable)}</div></div></div></div>
             </article>
+          </div>
+        </div>
+      )}
+
+      {readingCorrection && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[#10211c]/45 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#1e6a59]">Utility action</div>
+                <h3 className="mt-1 font-[Newsreader] text-2xl font-medium text-[#111e19]">Correct reading</h3>
+                <p className="mt-1 text-sm text-[#424845]">{readingCorrection.chargeDescription} · {selectedDraft?.draft.unitName}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReadingCorrection(null)}
+                disabled={savingReadingCorrection}
+                className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#edfdf3] text-[#424845] disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <div className="rounded-xl bg-[#edfdf3] p-4">
+                <div className="text-[10px] font-bold uppercase tracking-wide text-[#737875]">Previous reading</div>
+                <div className="mt-1 font-mono text-lg font-bold text-[#111e19]">{readingCorrection.detail.previous_reading}</div>
+              </div>
+              <div className="rounded-xl bg-[#edfdf3] p-4">
+                <div className="text-[10px] font-bold uppercase tracking-wide text-[#737875]">Currently saved</div>
+                <div className="mt-1 font-mono text-lg font-bold text-[#111e19]">{readingCorrection.detail.current_reading}</div>
+              </div>
+            </div>
+
+            <label className="mt-5 block">
+              <span className="text-xs font-bold uppercase tracking-wide text-[#424845]">New current reading</span>
+              <input
+                type="number"
+                min={readingCorrection.detail.previous_reading ?? 0}
+                step="any"
+                value={newReadingValue}
+                onChange={event => setNewReadingValue(event.target.value)}
+                className="mt-2 w-full rounded-xl border border-[#c2c8c4] bg-white px-4 py-3 font-mono text-lg font-semibold text-[#111e19] outline-none focus:border-[#1e6a59] focus:ring-2 focus:ring-[#1e6a59]/15"
+              />
+            </label>
+
+            {Number.isFinite(Number(newReadingValue)) && readingCorrection.detail.previous_reading !== null && Number(newReadingValue) >= readingCorrection.detail.previous_reading && (
+              <div className="mt-4 rounded-xl bg-[#e7f7ee] p-4 text-sm text-[#424845]">
+                New consumption: <strong className="text-[#111e19]">{Number(newReadingValue) - readingCorrection.detail.previous_reading}</strong> units
+                {readingCorrection.detail.rate !== null && (
+                  <span> · Estimated charge: <strong className="text-[#1e6a59]">{money((Number(newReadingValue) - readingCorrection.detail.previous_reading) * readingCorrection.detail.rate)}</strong></span>
+                )}
+              </div>
+            )}
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setReadingCorrection(null)}
+                disabled={savingReadingCorrection}
+                className="rounded-lg px-4 py-2.5 text-sm font-semibold text-[#424845] hover:bg-[#edfdf3] disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void saveReadingCorrection()}
+                disabled={savingReadingCorrection}
+                className="inline-flex items-center gap-2 rounded-lg bg-[#1e6a59] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#175748] disabled:opacity-60"
+              >
+                <span className="material-symbols-outlined text-[18px]">{savingReadingCorrection ? 'progress_activity' : 'save'}</span>
+                {savingReadingCorrection ? 'Saving & recalculating…' : 'Save correction'}
+              </button>
+            </div>
           </div>
         </div>
       )}
