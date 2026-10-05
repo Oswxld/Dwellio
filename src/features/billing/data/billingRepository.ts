@@ -151,90 +151,37 @@ export async function fetchBillingCycles(
 export async function createCurrentBillingCycle(
   propertyId: string,
 ): Promise<string> {
-  const { start, end } = monthDateRange()
-
-  const { data: existing, error: existingError } = await supabase
-    .from('billing_cycles')
-    .select('id')
-    .eq('property_id', propertyId)
-    .eq('period_start', start)
-    .maybeSingle()
-
-  if (existingError) {
-    logBillingRepositoryError(
-      'check existing billing cycle',
-      existingError,
-      { propertyId, periodStart: start },
-    )
-    throw existingError
-  }
-
-  if (existing?.id) {
-    console.info('[BillingRepository] Reusing existing billing cycle', {
-      propertyId,
-      periodStart: start,
-      billingCycleId: existing.id,
-    })
-    return existing.id
-  }
-
-  const { data: userResult, error: userError } = await supabase.auth.getUser()
-
-  if (userError) {
-    logBillingRepositoryError(
-      'get current user before billing cycle creation',
-      userError,
-      { propertyId, periodStart: start },
-    )
-    throw userError
-  }
-
-  if (!userResult.user) {
-    const error = new Error('You are not signed in.')
-    logBillingRepositoryError(
-      'validate signed-in user before billing cycle creation',
-      error,
-      { propertyId, periodStart: start },
-    )
-    throw error
-  }
-
-  const insertPayload = {
-    property_id: propertyId,
-    period_start: start,
-    period_end: end,
-    status: 'draft',
-    created_by: userResult.user.id,
-  }
-
-  const { data, error } = await supabase
-    .from('billing_cycles')
-    .insert(insertPayload)
-    .select('id')
-    .single()
+  const { data, error } = await supabase.rpc(
+    'create_billing_cycle',
+    {
+      p_property_id: propertyId,
+    },
+  )
 
   if (error) {
     logBillingRepositoryError(
-      'insert billing cycle',
+      'create billing cycle rpc',
       error,
-      {
-        propertyId,
-        periodStart: start,
-        periodEnd: end,
-        userId: userResult.user.id,
-        status: 'draft',
-      },
+      { propertyId },
     )
     throw error
   }
 
-  console.info('[BillingRepository] Billing cycle created', {
-    propertyId,
-    periodStart: start,
-    billingCycleId: data.id,
-  })
+  if (typeof data !== 'string' || !data) {
+    const resultError = new Error(
+      'The billing cycle RPC did not return a cycle id.',
+    )
 
-  return data.id
+    logBillingRepositoryError(
+      'validate create billing cycle rpc result',
+      resultError,
+      { propertyId, data },
+    )
+
+    throw resultError
+  }
+
+  return data
 }
 
 export async function fetchBillingDashboard(
