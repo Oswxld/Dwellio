@@ -319,7 +319,7 @@ export default function BillingPage() {
   }
 
   if (loading && properties.length === 0) {
-    return <PageSkeleton />
+    return <PageSkeleton variant="billing" />
   }
 
   return (
