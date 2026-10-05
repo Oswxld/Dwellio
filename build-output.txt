@@ -1,0 +1,5 @@
+
+> dwellio-landlord-web@0.1.0 build
+> tsc -b && vite build
+
+src/pages/BillingPage.tsx(322,13): error TS2741: Property 'variant' is missing in type '{}' but required in type 'PageSkeletonProps'.
