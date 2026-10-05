@@ -261,6 +261,29 @@ export default function BillingPage() {
       const result = await generatePropertyBillDrafts(cycle.id)
       setGenerationResult(result)
 
+      if (result.errors.length > 0) {
+        console.error('[BillingPage] backend draft generation errors', {
+          billingCycleId: cycle.id,
+          fatalErrors: result.fatal_errors,
+          errors: result.errors,
+          fullResult: result,
+        })
+
+        result.errors.forEach((generationIssue, index) => {
+          console.error(
+            `[BillingPage] generation error ${index + 1}`,
+            generationIssue,
+          )
+        })
+      }
+
+      if (result.missing_readings.length > 0) {
+        console.warn('[BillingPage] missing billing readings', {
+          billingCycleId: cycle.id,
+          missingReadings: result.missing_readings,
+        })
+      }
+
       await refreshDashboard()
 
       if (result.fatal_errors > 0 || result.missing_meter_readings > 0) {
@@ -571,8 +594,68 @@ export default function BillingPage() {
                   </div>
 
                   {generationResult && (
-                    <div className="mt-5 rounded-xl bg-[#edfdf3] p-4 text-sm text-[#424845]">
-                      Last run checked {generationResult.leases_checked} leases and generated {generationResult.drafts_generated} drafts.
+                    <div className="mt-5 space-y-3">
+                      <div className="rounded-xl bg-[#edfdf3] p-4 text-sm text-[#424845]">
+                        Last run checked {generationResult.leases_checked} leases and generated {generationResult.drafts_generated} drafts.
+                      </div>
+
+                      {generationResult.errors.length > 0 && (
+                        <div className="rounded-2xl border border-[#ba1a1a]/25 bg-[#fff4f2] p-4 sm:p-5">
+                          <div className="flex items-start gap-3">
+                            <span className="material-symbols-outlined mt-0.5 text-[22px] text-[#ba1a1a]">
+                              error
+                            </span>
+                            <div>
+                              <h3 className="font-semibold text-[#93000a]">
+                                Generation errors
+                              </h3>
+                              <p className="mt-1 text-sm leading-5 text-[#6f3b36]">
+                                Dwellio received the following backend errors while generating tenant drafts. These details are also logged in the browser console.
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 space-y-2">
+                            {generationResult.errors.map((generationIssue, index) => (
+                              <div
+                                key={`${generationIssue.lease_id ?? 'unknown'}-${index}`}
+                                className="rounded-xl border border-[#ba1a1a]/15 bg-white p-4"
+                              >
+                                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                                  <div className="text-sm font-semibold text-[#111e19]">
+                                    {generationIssue.unit_name
+                                      ? `Unit ${generationIssue.unit_name}`
+                                      : `Generation error ${index + 1}`}
+                                  </div>
+                                  {generationIssue.lease_id && (
+                                    <div className="font-mono text-[11px] text-[#737875]">
+                                      Lease {generationIssue.lease_id}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="mt-2 whitespace-pre-wrap break-words rounded-lg bg-[#fff4f2] px-3 py-2 font-mono text-xs leading-5 text-[#93000a]">
+                                  {generationIssue.error ?? 'The backend returned a generation error without a message.'}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {generationResult.missing_readings.length > 0 && (
+                        <div className="rounded-xl border border-[#8b6508]/20 bg-[#fff8df] p-4 text-sm text-[#6d5208]">
+                          <div className="font-semibold">Missing reading details</div>
+                          <div className="mt-2 space-y-1">
+                            {generationResult.missing_readings.map((readingIssue, index) => (
+                              <div key={`${readingIssue.meter_id ?? 'missing'}-${index}`}>
+                                {readingIssue.unit_name ?? 'Unit'}
+                                {readingIssue.service_name ? ` · ${readingIssue.service_name}` : ''}
+                                {readingIssue.missing ? ` · ${readingIssue.missing}` : ''}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 

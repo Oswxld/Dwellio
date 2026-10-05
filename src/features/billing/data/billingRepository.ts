@@ -456,8 +456,25 @@ export async function generatePropertyBillDrafts(
     p_billing_cycle_id: billingCycleId,
   })
 
-  if (error) throw error
-  return data as GenerateDraftsResult
+  if (error) {
+    console.error('[BillingRepository] generate_property_bill_drafts RPC failed', {
+      billingCycleId,
+      error,
+    })
+    throw error
+  }
+
+  const result = data as GenerateDraftsResult
+
+  if (result?.errors?.length > 0) {
+    console.error('[BillingRepository] generate_property_bill_drafts returned errors', {
+      billingCycleId,
+      errors: result.errors,
+      result,
+    })
+  }
+
+  return result
 }
 
 export async function fetchDraftDetail(
