@@ -29,6 +29,55 @@ import type {
 import PageSkeleton from '../components/loading/PageSkeleton'
 
 
+
+type BillingUiErrorLike = {
+  message?: unknown
+  code?: unknown
+  details?: unknown
+  hint?: unknown
+}
+
+function billingErrorMessage(
+  error: unknown,
+  fallback: string,
+) {
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  if (
+    typeof error === 'object'
+    && error !== null
+    && 'message' in error
+    && typeof (error as BillingUiErrorLike).message === 'string'
+  ) {
+    return (error as BillingUiErrorLike).message as string
+  }
+
+  return fallback
+}
+
+function logBillingPageError(
+  operation: string,
+  error: unknown,
+  context: Record<string, unknown> = {},
+) {
+  const payload =
+    typeof error === 'object' && error !== null
+      ? error as BillingUiErrorLike
+      : {}
+
+  console.error(`[BillingPage] ${operation} failed`, {
+    context,
+    message: billingErrorMessage(error, 'Unknown billing error'),
+    code: payload.code,
+    details: payload.details,
+    hint: payload.hint,
+    error,
+  })
+}
+
+
 function money(
   amount: number,
 ) {
@@ -350,10 +399,17 @@ export default function BillingPage() {
 
       } catch (err) {
 
+      logBillingPageError(
+        'billing operation',
+        err,
+        { propertyId, cycleId },
+      )
+
         setError(
-          err instanceof Error
-            ? err.message
-            : 'Could not load billing properties.',
+          billingErrorMessage(
+            err,
+            'Could not load billing properties.',
+          ),
         )
 
       } finally {
@@ -449,10 +505,17 @@ export default function BillingPage() {
 
       } catch (err) {
 
+      logBillingPageError(
+        'billing operation',
+        err,
+        { propertyId, cycleId },
+      )
+
         setError(
-          err instanceof Error
-            ? err.message
-            : 'Could not load property billing.',
+          billingErrorMessage(
+            err,
+            'Could not load property billing.',
+          ),
         )
 
       } finally {
@@ -559,11 +622,18 @@ export default function BillingPage() {
 
     } catch (err) {
 
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Could not load the billing cycle.',
+      logBillingPageError(
+        'billing operation',
+        err,
+        { propertyId, cycleId },
       )
+
+      setError(
+          billingErrorMessage(
+            err,
+            'Could not load the billing cycle.',
+          ),
+        )
 
     } finally {
 
@@ -623,11 +693,18 @@ export default function BillingPage() {
 
     } catch (err) {
 
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Could not create billing cycle.',
+      logBillingPageError(
+        'billing operation',
+        err,
+        { propertyId, cycleId },
       )
+
+      setError(
+          billingErrorMessage(
+            err,
+            'Could not create billing cycle.',
+          ),
+        )
 
     } finally {
 
@@ -681,11 +758,18 @@ export default function BillingPage() {
 
     } catch (err) {
 
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Draft generation failed.',
+      logBillingPageError(
+        'billing operation',
+        err,
+        { propertyId, cycleId },
       )
+
+      setError(
+          billingErrorMessage(
+            err,
+            'Draft generation failed.',
+          ),
+        )
 
     } finally {
 
@@ -725,11 +809,18 @@ export default function BillingPage() {
 
     } catch (err) {
 
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Could not load bill draft.',
+      logBillingPageError(
+        'billing operation',
+        err,
+        { propertyId, cycleId },
       )
+
+      setError(
+          billingErrorMessage(
+            err,
+            'Could not load bill draft.',
+          ),
+        )
 
     } finally {
 
@@ -769,11 +860,18 @@ export default function BillingPage() {
 
     } catch (err) {
 
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Could not approve this bill draft.',
+      logBillingPageError(
+        'billing operation',
+        err,
+        { propertyId, cycleId },
       )
+
+      setError(
+          billingErrorMessage(
+            err,
+            'Could not approve this bill draft.',
+          ),
+        )
 
     } finally {
 
@@ -840,11 +938,18 @@ export default function BillingPage() {
 
     } catch (err) {
 
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Could not finalize invoices.',
+      logBillingPageError(
+        'billing operation',
+        err,
+        { propertyId, cycleId },
       )
+
+      setError(
+          billingErrorMessage(
+            err,
+            'Could not finalize invoices.',
+          ),
+        )
 
     } finally {
 

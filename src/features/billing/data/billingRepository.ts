@@ -15,6 +15,39 @@ import type {
   WorkspaceIdentity,
 } from './types'
 
+
+type BillingErrorLike = {
+  message?: unknown
+  code?: unknown
+  details?: unknown
+  hint?: unknown
+}
+
+function logBillingRepositoryError(
+  operation: string,
+  error: unknown,
+  context: Record<string, unknown> = {},
+) {
+  const payload =
+    typeof error === 'object' && error !== null
+      ? error as BillingErrorLike
+      : {}
+
+  console.error(`[BillingRepository] ${operation} failed`, {
+    context,
+    message:
+      typeof payload.message === 'string'
+        ? payload.message
+        : error instanceof Error
+          ? error.message
+          : String(error),
+    code: payload.code,
+    details: payload.details,
+    hint: payload.hint,
+    error,
+  })
+}
+
 function numberValue(value: unknown) {
   const parsed = Number(value ?? 0)
   return Number.isFinite(parsed) ? parsed : 0
@@ -127,26 +160,80 @@ export async function createCurrentBillingCycle(
     .eq('period_start', start)
     .maybeSingle()
 
-  if (existingError) throw existingError
-  if (existing?.id) return existing.id
+  if (existingError) {
+    logBillingRepositoryError(
+      'check existing billing cycle',
+      existingError,
+      { propertyId, periodStart: start },
+    )
+    throw existingError
+  }
+
+  if (existing?.id) {
+    console.info('[BillingRepository] Reusing existing billing cycle', {
+      propertyId,
+      periodStart: start,
+      billingCycleId: existing.id,
+    })
+    return existing.id
+  }
 
   const { data: userResult, error: userError } = await supabase.auth.getUser()
-  if (userError) throw userError
-  if (!userResult.user) throw new Error('You are not signed in.')
+
+  if (userError) {
+    logBillingRepositoryError(
+      'get current user before billing cycle creation',
+      userError,
+      { propertyId, periodStart: start },
+    )
+    throw userError
+  }
+
+  if (!userResult.user) {
+    const error = new Error('You are not signed in.')
+    logBillingRepositoryError(
+      'validate signed-in user before billing cycle creation',
+      error,
+      { propertyId, periodStart: start },
+    )
+    throw error
+  }
+
+  const insertPayload = {
+    property_id: propertyId,
+    period_start: start,
+    period_end: end,
+    status: 'draft',
+    created_by: userResult.user.id,
+  }
 
   const { data, error } = await supabase
     .from('billing_cycles')
-    .insert({
-      property_id: propertyId,
-      period_start: start,
-      period_end: end,
-      status: 'draft',
-      created_by: userResult.user.id,
-    })
+    .insert(insertPayload)
     .select('id')
     .single()
 
-  if (error) throw error
+  if (error) {
+    logBillingRepositoryError(
+      'insert billing cycle',
+      error,
+      {
+        propertyId,
+        periodStart: start,
+        periodEnd: end,
+        userId: userResult.user.id,
+        status: 'draft',
+      },
+    )
+    throw error
+  }
+
+  console.info('[BillingRepository] Billing cycle created', {
+    propertyId,
+    periodStart: start,
+    billingCycleId: data.id,
+  })
+
   return data.id
 }
 
