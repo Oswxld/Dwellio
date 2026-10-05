@@ -633,11 +633,37 @@ export async function approveAllBillDrafts(billingCycleId: string) {
       updated_at: new Date().toISOString(),
     })
     .eq('billing_cycle_id', billingCycleId)
-    .in('status', ['draft', 'reviewed'])
+    .neq('status', 'cancelled')
     .select('id')
 
   if (error) throw error
   return data?.length ?? 0
+}
+
+export async function correctMeterReading(
+  readingId: string,
+  value: number,
+) {
+  const { data: userResult, error: userError } = await supabase.auth.getUser()
+  if (userError) throw userError
+  if (!userResult.user) throw new Error('You are not signed in.')
+
+  const { data, error } = await supabase
+    .from('meter_readings')
+    .update({
+      value,
+      recorded_by: userResult.user.id,
+      recorded_at: new Date().toISOString(),
+    })
+    .eq('id', readingId)
+    .eq('reading_type', 'periodic')
+    .select('id')
+
+  if (error) throw error
+
+  if (!data || data.length === 0) {
+    throw new Error('This meter reading could not be updated. Refresh and try again.')
+  }
 }
 
 export async function finalizeBillingCycle(billingCycleId: string) {
