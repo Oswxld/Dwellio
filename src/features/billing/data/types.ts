@@ -126,6 +126,34 @@ export interface DraftDetail {
   balanceSources: BalanceSource[]
 }
 
+export interface FinalizedInvoiceRow {
+  id: string
+  bill_draft_id: string
+  invoice_number: string
+  status: string
+
+  current_charges: number
+  previous_balance: number
+  total_invoiced: number
+  total_paid: number
+  outstanding_amount: number
+
+  due_date: string | null
+  issued_at: string | null
+  created_at: string
+
+  tenantName: string
+  unitName: string
+  billing_context: BillingContext
+
+  draft: BillDraftRow
+}
+
+export interface FinalizedInvoiceDetail {
+  invoice: FinalizedInvoiceRow
+  draftDetail: DraftDetail
+}
+
 export interface BillingIssue {
   id: string
 

@@ -20,6 +20,9 @@ import {
   fetchBillingDashboard,
   fetchBillingProperties,
   fetchDraftDetail,
+  fetchFinalizedInvoiceDetail,
+  fetchFinalizedInvoices,
+  finalizeBillingCycle,
   generatePropertyBillDrafts,
 } from '../features/billing/data/billingRepository'
 
@@ -30,6 +33,8 @@ import type {
   BillingDashboardData,
   BillingProperty,
   DraftDetail,
+  FinalizedInvoiceDetail,
+  FinalizedInvoiceRow,
   GenerateDraftsResult,
 } from '../features/billing/data/types'
 
@@ -103,6 +108,16 @@ function displayContext(value: string) {
   return 'Normal'
 }
 
+function displayDate(value: string | null) {
+  if (!value) return '—'
+  const normalized = value.length === 10 ? value + 'T00:00:00' : value
+  return new Date(normalized).toLocaleDateString('en-KE', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
 const steps: Array<{
   id: BillingStep
   number: number
@@ -132,6 +147,13 @@ export default function BillingPage() {
   const [openingDraft, setOpeningDraft] = useState(false)
   const [approvingDraft, setApprovingDraft] = useState(false)
   const [approvingAll, setApprovingAll] = useState(false)
+  const [finalizing, setFinalizing] = useState(false)
+  const [showFinalizeConfirm, setShowFinalizeConfirm] = useState(false)
+  const [finalizedInvoices, setFinalizedInvoices] = useState<FinalizedInvoiceRow[]>([])
+  const [selectedInvoice, setSelectedInvoice] = useState<FinalizedInvoiceDetail | null>(null)
+  const [loadingInvoices, setLoadingInvoices] = useState(false)
+  const [invoiceSearch, setInvoiceSearch] = useState('')
+  const [invoiceStatusFilter, setInvoiceStatusFilter] = useState('all')
   const [readingCorrection, setReadingCorrection] = useState<ReadingCorrectionTarget | null>(null)
   const [newReadingValue, setNewReadingValue] = useState('')
   const [savingReadingCorrection, setSavingReadingCorrection] = useState(false)
@@ -152,6 +174,7 @@ export default function BillingPage() {
     steps.find(item => item.id === step)?.number ?? 1
 
   const draftsExist = dashboard.draftCount > 0
+  const invoicesExist = dashboard.invoiceCount > 0
   const allDraftsApproved =
     dashboard.draftCount > 0 &&
     dashboard.approvedCount === dashboard.draftCount
@@ -170,6 +193,30 @@ export default function BillingPage() {
   const approvalPercent = dashboard.draftCount > 0
     ? Math.round((dashboard.approvedCount / dashboard.draftCount) * 100)
     : 0
+
+  const finalizedCurrentCharges = finalizedInvoices.reduce(
+    (sum, invoice) => sum + invoice.current_charges,
+    0,
+  )
+  const finalizedArrears = finalizedInvoices.reduce(
+    (sum, invoice) => sum + invoice.previous_balance,
+    0,
+  )
+  const finalizedTotal = finalizedInvoices.reduce(
+    (sum, invoice) => sum + invoice.total_invoiced,
+    0,
+  )
+  const visibleInvoices = finalizedInvoices.filter(invoice => {
+    const query = invoiceSearch.trim().toLowerCase()
+    const matchesQuery = !query || [
+      invoice.invoice_number,
+      invoice.tenantName,
+      invoice.unitName,
+    ].some(value => value.toLowerCase().includes(query))
+    const matchesStatus =
+      invoiceStatusFilter === 'all' || invoice.status === invoiceStatusFilter
+    return matchesQuery && matchesStatus
+  })
 
   const configurationReady =
     dashboard.configurationIssues.every(issue =>
@@ -211,6 +258,10 @@ export default function BillingPage() {
         setSuccess('')
         setGenerationResult(null)
         setSelectedDraft(null)
+        setSelectedInvoice(null)
+        setFinalizedInvoices([])
+        setInvoiceSearch('')
+        setInvoiceStatusFilter('all')
 
         const rows = await fetchBillingCycles(property!.id)
         setCycles(rows)
@@ -237,7 +288,9 @@ export default function BillingPage() {
       const next = await fetchBillingDashboard(property.id, cycle)
       setDashboard(next)
 
-      if (next.draftCount > 0) {
+      if (next.invoiceCount > 0) {
+        setStep('invoices')
+      } else if (next.draftCount > 0) {
         setStep('review')
       }
     } catch (loadError) {
@@ -254,6 +307,25 @@ export default function BillingPage() {
 
     void refreshDashboard()
   }, [cycle, property, refreshDashboard])
+
+  useEffect(() => {
+    if (step !== 'invoices' || !cycle || dashboard.invoiceCount === 0) return
+
+    async function loadInvoices() {
+      try {
+        setLoadingInvoices(true)
+        setError('')
+        setFinalizedInvoices(await fetchFinalizedInvoices(cycle!, dashboard.drafts))
+      } catch (invoiceError) {
+        console.error('[BillingPage] finalized invoice load failed', invoiceError)
+        setError(errorMessage(invoiceError, 'Could not load finalized invoices.'))
+      } finally {
+        setLoadingInvoices(false)
+      }
+    }
+
+    void loadInvoices()
+  }, [step, cycle, dashboard.invoiceCount, dashboard.drafts])
 
   const handleReadingsCompletion = useCallback((
     _complete: boolean,
@@ -490,14 +562,66 @@ export default function BillingPage() {
     }
   }
 
+  async function finalizeInvoices() {
+    if (!cycle || !property || !allDraftsApproved || finalizing) return
+
+    try {
+      setFinalizing(true)
+      setError('')
+      setSuccess('')
+
+      await finalizeBillingCycle(cycle.id)
+
+      const refreshedCycles = await fetchBillingCycles(property.id)
+      setCycles(refreshedCycles)
+      const refreshedCycle = refreshedCycles.find(item => item.id === cycle.id) ?? cycle
+
+      const nextDashboard = await fetchBillingDashboard(property.id, refreshedCycle)
+      setDashboard(nextDashboard)
+
+      const invoices = await fetchFinalizedInvoices(refreshedCycle, nextDashboard.drafts)
+      setFinalizedInvoices(invoices)
+      setSelectedDraft(null)
+      setShowFinalizeConfirm(false)
+      setStep('invoices')
+      setSuccess(
+        String(invoices.length) + ' invoice' + (invoices.length === 1 ? '' : 's') +
+        ' finalized for ' + cycleLabel(refreshedCycle) + '.',
+      )
+    } catch (finalizeError) {
+      console.error('[BillingPage] invoice finalization failed', finalizeError)
+      setError(errorMessage(finalizeError, 'Could not finalize this billing cycle.'))
+    } finally {
+      setFinalizing(false)
+    }
+  }
+
+  async function openFinalizedInvoice(invoice: FinalizedInvoiceRow) {
+    try {
+      setLoadingInvoices(true)
+      setError('')
+      setSelectedInvoice(await fetchFinalizedInvoiceDetail(invoice))
+    } catch (invoiceError) {
+      console.error('[BillingPage] finalized invoice detail failed', invoiceError)
+      setError(errorMessage(invoiceError, 'Could not load this finalized invoice.'))
+    } finally {
+      setLoadingInvoices(false)
+    }
+  }
+
   function navigate(target: BillingStep) {
     if (!cycle) return
 
-    if (target === 'invoices' || target === 'send') {
+    if (target === 'send') return
+
+    if (target === 'invoices' && !invoicesExist) return
+
+    if (invoicesExist && target !== 'invoices') {
+      setError('Invoices are finalized for this cycle. Billing inputs and drafts are now locked.')
       return
     }
 
-    if (draftsExist && target !== 'review') {
+    if (draftsExist && target !== 'review' && target !== 'invoices') {
       setError('Drafts already exist for this cycle. Finish reviewing them before changing the billing inputs.')
       return
     }
@@ -621,16 +745,21 @@ export default function BillingPage() {
                   {steps.map(item => {
                     const active = item.id === step
                     const completed = item.id === 'review'
-                      ? allDraftsApproved
-                      : item.number < currentStepNumber
-                    const futureStep = item.number > 4
-                    const locked = futureStep || (draftsExist && item.number < 4)
+                      ? allDraftsApproved || invoicesExist
+                      : item.id === 'invoices'
+                        ? false
+                        : item.number < currentStepNumber
+                    const locked =
+                      item.id === 'send' ||
+                      (item.id === 'invoices' && !invoicesExist) ||
+                      (invoicesExist && item.number < 5) ||
+                      (!invoicesExist && draftsExist && item.number < 4)
 
                     return (
                       <button
                         key={item.id}
                         type="button"
-                        disabled={locked || (item.number > currentStepNumber && item.id !== 'review')}
+                        disabled={locked || (item.number > currentStepNumber && item.id !== 'review' && item.id !== 'invoices')}
                         onClick={() => navigate(item.id)}
                         className={`flex items-center gap-2 rounded-xl border p-3 text-left transition ${
                           active
@@ -971,8 +1100,131 @@ export default function BillingPage() {
                 </div>
 
                 <div className="flex flex-col gap-3 rounded-2xl border border-[#1e6a59]/15 bg-[#a8f1db]/25 p-5 sm:flex-row sm:items-center sm:justify-between">
-                  <div><div className="font-semibold text-[#005142]">{allDraftsApproved ? 'All drafts approved' : 'Finalization is locked'}</div><div className="mt-1 text-sm text-[#26705f]">{allDraftsApproved ? 'The next backend step will finalize these drafts and unlock Step 5: View invoices.' : 'Approve every draft before the billing cycle can be finalized.'}</div></div>
-                  <button type="button" disabled className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#10211c] px-5 py-3 text-sm font-semibold text-white opacity-45">Finalize invoices<span className="material-symbols-outlined text-[18px]">arrow_forward</span></button>
+                  <div>
+                    <div className="font-semibold text-[#005142]">{allDraftsApproved ? 'All drafts approved' : 'Finalization is locked'}</div>
+                    <div className="mt-1 text-sm text-[#26705f]">{allDraftsApproved ? 'Finalize the approved drafts to create locked invoice records and move to Step 5.' : 'Approve every draft before the billing cycle can be finalized.'}</div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!allDraftsApproved || finalizing || invoicesExist}
+                    onClick={() => setShowFinalizeConfirm(true)}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#10211c] px-5 py-3 text-sm font-bold text-white shadow-[0_10px_28px_rgba(16,33,28,0.18)] transition hover:-translate-y-0.5 hover:bg-[#1a3029] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">{finalizing ? 'progress_activity' : 'lock'}</span>
+                    {invoicesExist ? 'Invoices finalized' : finalizing ? 'Finalizing invoices…' : 'Finalize invoices'}
+                  </button>
+                </div>
+              </section>
+            )}
+
+            {step === 'invoices' && (
+              <section className="space-y-6">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <div className="mb-1 flex items-center gap-2">
+                      <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#1e6a59]">Finalized Billing</span>
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#1e6a59]" />
+                      <span className="text-[11px] font-semibold text-[#737875]">Step 5 of 6</span>
+                    </div>
+                    <h2 className="font-[Newsreader] text-3xl font-medium tracking-tight text-[#111e19]">Finalized invoices</h2>
+                    <p className="mt-1 max-w-3xl text-sm leading-6 text-[#424845]">Review the locked invoice records created from the approved {cycleLabel(cycle)} drafts before tenant delivery.</p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1e6a59] px-5 py-3 text-sm font-bold text-white shadow-[0_10px_28px_rgba(30,106,89,0.25)] opacity-55"
+                  >
+                    Next: Send invoices
+                    <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                  <InvoiceMetric label="Finalized invoices" value={String(finalizedInvoices.length || dashboard.invoiceCount)} icon="assignment_turned_in" />
+                  <InvoiceMetric label="Current charges" value={money(finalizedCurrentCharges)} icon="calendar_month" />
+                  <InvoiceMetric label="Carried arrears" value={money(finalizedArrears)} icon="history" />
+                  <InvoiceMetric label="Total invoiced" value={money(finalizedTotal)} icon="payments" dark />
+                </div>
+
+                <div className="flex flex-col gap-3 rounded-2xl bg-[#e7f7ee] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-3 text-sm font-semibold text-[#005142]">
+                    <span className="material-symbols-outlined text-[20px]">verified_user</span>
+                    <span>{finalizedInvoices.length || dashboard.invoiceCount} finalized · 0 sent · {finalizedInvoices.length || dashboard.invoiceCount} awaiting delivery</span>
+                  </div>
+                  <span className="text-xs text-[#424845]">Invoices Finalized · Ready for Delivery</span>
+                </div>
+
+                <div className="overflow-hidden rounded-2xl bg-white shadow-[0_10px_28px_rgba(16,33,28,0.05)]">
+                  <div className="flex flex-col gap-3 border-b border-[#c2c8c4]/35 p-5 md:flex-row md:items-center md:justify-between">
+                    <div className="relative w-full md:max-w-md">
+                      <span className="material-symbols-outlined absolute left-3 top-2.5 text-[20px] text-[#737875]">search</span>
+                      <input
+                        value={invoiceSearch}
+                        onChange={event => setInvoiceSearch(event.target.value)}
+                        placeholder="Search tenant, unit, or invoice number…"
+                        className="h-10 w-full rounded-lg bg-[#edfdf3] pl-10 pr-4 text-sm text-[#111e19] outline-none focus:ring-2 focus:ring-[#1e6a59]/15"
+                      />
+                    </div>
+                    <select
+                      value={invoiceStatusFilter}
+                      onChange={event => setInvoiceStatusFilter(event.target.value)}
+                      className="h-10 rounded-lg bg-[#edfdf3] px-3 text-sm font-semibold text-[#424845] outline-none"
+                    >
+                      <option value="all">All financial statuses</option>
+                      {[...new Set(finalizedInvoices.map(invoice => invoice.status))].map(status => (
+                        <option key={status} value={status}>{status.replaceAll('_', ' ')}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[1050px] border-collapse text-left text-sm">
+                      <thead className="bg-[#e7f7ee] text-[11px] uppercase tracking-[0.08em] text-[#424845]">
+                        <tr>
+                          <th className="px-5 py-3">Tenant</th>
+                          <th className="px-4 py-3">Unit</th>
+                          <th className="px-4 py-3">Invoice</th>
+                          <th className="px-4 py-3 text-right">Current charges</th>
+                          <th className="px-4 py-3 text-right">Previous balance</th>
+                          <th className="px-4 py-3 text-right">Total invoiced</th>
+                          <th className="px-4 py-3 text-center">Financial status</th>
+                          <th className="px-4 py-3 text-center">Delivery</th>
+                          <th className="px-5 py-3 text-right">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#c2c8c4]/30">
+                        {visibleInvoices.map(invoice => (
+                          <tr key={invoice.id} className="hover:bg-[#edfdf3]/55">
+                            <td className="px-5 py-4 font-semibold text-[#111e19]">{invoice.tenantName}</td>
+                            <td className="px-4 py-4 text-[#424845]">{invoice.unitName}</td>
+                            <td className="px-4 py-4 font-mono text-xs font-semibold text-[#1e6a59]">{invoice.invoice_number}</td>
+                            <td className="px-4 py-4 text-right font-mono font-semibold text-[#111e19]">{money(invoice.current_charges)}</td>
+                            <td className="px-4 py-4 text-right font-mono font-semibold text-[#8b6508]">{money(invoice.previous_balance)}</td>
+                            <td className="px-4 py-4 text-right font-mono font-bold text-[#111e19]">{money(invoice.total_invoiced)}</td>
+                            <td className="px-4 py-4 text-center"><span className="rounded-full bg-[#a8f1db]/45 px-2.5 py-1 text-xs font-semibold capitalize text-[#005142]">{invoice.status.replaceAll('_', ' ')}</span></td>
+                            <td className="px-4 py-4 text-center"><span className="rounded-full bg-[#e2f2e8] px-2.5 py-1 text-xs font-semibold text-[#424845]">Not sent</span></td>
+                            <td className="px-5 py-4 text-right">
+                              <button type="button" onClick={() => void openFinalizedInvoice(invoice)} disabled={loadingInvoices} className="inline-flex items-center gap-1 rounded-lg bg-[#e2f2e8] px-3 py-2 text-xs font-semibold text-[#1e6a59] hover:bg-[#d6e6dd] disabled:opacity-50">View invoice<span className="material-symbols-outlined text-[14px]">arrow_forward</span></button>
+                            </td>
+                          </tr>
+                        ))}
+                        {!loadingInvoices && visibleInvoices.length === 0 && (
+                          <tr><td colSpan={9} className="px-5 py-12 text-center text-sm text-[#737875]">No finalized invoices match this view.</td></tr>
+                        )}
+                        {loadingInvoices && finalizedInvoices.length === 0 && (
+                          <tr><td colSpan={9} className="px-5 py-12 text-center text-sm text-[#737875]">Loading finalized invoices…</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="flex items-center justify-between bg-[#edfdf3] px-5 py-3 text-xs text-[#737875]">
+                    <span>Showing {visibleInvoices.length} of {finalizedInvoices.length} finalized invoices</span>
+                    <span className="font-semibold text-[#111e19]">Total invoiced: {money(finalizedTotal)}</span>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-[#1e6a59]/15 bg-[#a8f1db]/25 p-4 text-sm text-[#005142]">
+                  Step 6 will handle tenant delivery separately. Finalized invoice values are read-only and will not be changed by sending.
                 </div>
               </section>
             )}
@@ -1056,6 +1308,102 @@ export default function BillingPage() {
 
               <div className="border-t border-[#c2c8c4]/40 pt-6"><div className="rounded-2xl bg-[#e7f7ee] p-5 sm:flex sm:items-center sm:justify-between"><div className="space-y-1 text-sm text-[#424845]"><div>Current charges: <strong className="text-[#111e19]">{money(selectedDraft.draft.current_charges)}</strong></div><div>Carried arrears: <strong className="text-[#111e19]">{money(selectedDraft.draft.previous_balance)}</strong></div></div><div className="mt-4 sm:mt-0 sm:text-right"><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#737875]">Total payable</div><div className="mt-1 font-[Newsreader] text-4xl font-medium tracking-tight text-[#111e19]">{money(selectedDraft.draft.total_payable)}</div></div></div></div>
             </article>
+          </div>
+        </div>
+      )}
+
+      {selectedInvoice && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-[#edfdf3]">
+          <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <button type="button" onClick={() => setSelectedInvoice(null)} className="inline-flex w-fit items-center gap-2 text-sm font-semibold text-[#1e6a59] hover:underline"><span className="material-symbols-outlined text-[18px]">arrow_back</span>Back to finalized invoices</button>
+              <button type="button" disabled className="inline-flex items-center gap-2 rounded-lg bg-[#1e6a59] px-5 py-2.5 text-sm font-semibold text-white opacity-55"><span className="material-symbols-outlined text-[18px]">send</span>Send this invoice — Step 6</button>
+            </div>
+
+            <div className="mb-4 flex items-start gap-3 rounded-xl bg-[#e7f7ee] p-4">
+              <span className="material-symbols-outlined text-[21px] text-[#1e6a59]">lock</span>
+              <div><div className="text-sm font-semibold text-[#111e19]">Finalized financial record</div><div className="mt-1 text-xs leading-5 text-[#424845]">This invoice was created from the approved billing draft. Financial values are locked against silent edits.</div></div>
+            </div>
+
+            <article className="overflow-hidden rounded-2xl bg-white p-6 shadow-[0_16px_48px_rgba(16,33,28,0.08)] sm:p-10">
+              <div className="flex flex-col gap-5 border-b border-[#c2c8c4]/40 pb-6 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <div className="flex items-center gap-2"><span className="material-symbols-outlined flex h-8 w-8 items-center justify-center rounded-lg bg-[#1e6a59] text-[18px] text-white">apartment</span><span className="font-[Newsreader] text-xl font-semibold tracking-tight text-[#111e19]">{property?.name ?? 'Property'}</span></div>
+                  <div className="mt-2 text-sm text-[#737875]">{cycle ? cycleLabel(cycle) + ' billing run' : 'Billing run'}</div>
+                </div>
+                <div className="text-left sm:text-right">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#1e6a59]">Invoice</div>
+                  <div className="mt-1 font-mono text-lg font-bold text-[#111e19]">{selectedInvoice.invoice.invoice_number}</div>
+                  <div className="mt-1 text-xs text-[#737875]">Issued {displayDate(selectedInvoice.invoice.issued_at ?? selectedInvoice.invoice.created_at)}</div>
+                  <div className="text-xs font-semibold text-[#8b6508]">Due {displayDate(selectedInvoice.invoice.due_date)}</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 border-b border-[#c2c8c4]/40 py-6 sm:grid-cols-4">
+                <div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#737875]">Tenant</div><div className="mt-1 font-semibold text-[#111e19]">{selectedInvoice.invoice.tenantName}</div></div>
+                <div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#737875]">Unit</div><div className="mt-1 font-semibold text-[#1e6a59]">{selectedInvoice.invoice.unitName}</div></div>
+                <div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#737875]">Financial status</div><div className="mt-1 font-semibold capitalize text-[#005142]">{selectedInvoice.invoice.status.replaceAll('_', ' ')}</div></div>
+                <div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#737875]">Delivery status</div><div className="mt-1 font-semibold text-[#424845]">Not sent</div></div>
+              </div>
+
+              <div className="py-6">
+                <div className="mb-4 flex items-end justify-between gap-4"><div><div className="font-[Newsreader] text-xl font-medium text-[#111e19]">Current charges</div><div className="mt-1 text-xs text-[#737875]">Finalized from the approved billing draft</div></div><div className="font-mono text-lg font-bold text-[#111e19]">{money(selectedInvoice.invoice.current_charges)}</div></div>
+                <div className="overflow-hidden rounded-xl bg-[#edfdf3]/70">
+                  <div className="divide-y divide-[#c2c8c4]/25">
+                    {selectedInvoice.draftDetail.charges.map(charge => (
+                      <div key={charge.id} className="grid gap-3 p-4 md:grid-cols-[1.4fr_1.4fr_auto] md:items-center">
+                        <div><div className="font-semibold text-[#111e19]">{charge.description}</div><div className="mt-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-[#737875]">{charge.charge_type}</div></div>
+                        <div className="text-xs leading-5 text-[#424845]">
+                          {charge.details.length > 0
+                            ? charge.details.map(detail => (
+                                <div key={detail.id}>
+                                  {detail.previous_reading !== null && detail.current_reading !== null
+                                    ? 'Prev ' + detail.previous_reading + ' → Current ' + detail.current_reading + ' · ' + (detail.consumption ?? 0) + ' units × ' + money(detail.rate ?? 0)
+                                    : 'No meter detail for this charge.'}
+                                </div>
+                              ))
+                            : 'Fixed charge'}
+                        </div>
+                        <div className="font-mono font-bold text-[#111e19]">{money(charge.amount)}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t border-[#c2c8c4]/40 py-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="font-[Newsreader] text-xl font-medium text-[#111e19]">Previous balance / arrears</div><div className="mt-1 text-xs text-[#737875]">Carried forward separately from current-cycle charges</div></div><div className="font-mono text-lg font-bold text-[#8b6508]">{money(selectedInvoice.invoice.previous_balance)}</div></div>
+                {selectedInvoice.draftDetail.balanceSources.length > 0 && <div className="mt-4 space-y-2 rounded-xl bg-[#fff8df]/70 p-4"><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#6d5208]">Balance source</div>{selectedInvoice.draftDetail.balanceSources.map(source => (<div key={source.source_invoice_id} className="flex justify-between gap-4 text-sm text-[#424845]"><span>{source.invoiceNumber}</span><span className="font-mono font-semibold text-[#8b6508]">{money(source.amount)}</span></div>))}</div>}
+              </div>
+
+              <div className="border-t border-[#c2c8c4]/40 pt-6">
+                <div className="rounded-2xl bg-[#10211c] p-5 text-white sm:flex sm:items-center sm:justify-between">
+                  <div className="space-y-1 text-sm text-[#b7cbc3]"><div>Current charges: <strong className="text-white">{money(selectedInvoice.invoice.current_charges)}</strong></div><div>Carried arrears: <strong className="text-white">{money(selectedInvoice.invoice.previous_balance)}</strong></div>{selectedInvoice.invoice.total_paid > 0 && <div>Paid: <strong className="text-white">{money(selectedInvoice.invoice.total_paid)}</strong></div>}</div>
+                  <div className="mt-4 sm:mt-0 sm:text-right"><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#b7cbc3]">Total invoiced</div><div className="mt-1 font-[Newsreader] text-4xl font-medium tracking-tight">{money(selectedInvoice.invoice.total_invoiced)}</div>{selectedInvoice.invoice.total_paid > 0 && <div className="mt-1 text-xs text-[#8dd4bf]">Outstanding {money(selectedInvoice.invoice.outstanding_amount)}</div>}</div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </div>
+      )}
+
+      {showFinalizeConfirm && cycle && (
+        <div className="fixed inset-0 z-[65] flex items-center justify-center bg-[#10211c]/55 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <span className="material-symbols-outlined flex h-10 w-10 items-center justify-center rounded-xl bg-[#e7f7ee] text-[#1e6a59]">lock</span>
+              <div><h3 className="font-[Newsreader] text-2xl font-medium text-[#111e19]">Finalize {cycleLabel(cycle)} invoices?</h3><p className="mt-1 text-sm leading-6 text-[#424845]">{dashboard.draftCount} approved drafts will become locked invoice records.</p></div>
+            </div>
+            <div className="mt-5 space-y-2 rounded-xl bg-[#edfdf3] p-4 text-sm text-[#424845]">
+              <div className="flex justify-between"><span>Current charges</span><strong className="text-[#111e19]">{money(currentChargesTotal)}</strong></div>
+              <div className="flex justify-between"><span>Previous balances</span><strong className="text-[#111e19]">{money(previousBalancesTotal)}</strong></div>
+              <div className="flex justify-between border-t border-[#c2c8c4]/45 pt-2"><span>Total payable</span><strong className="text-[#1e6a59]">{money(totalPayable)}</strong></div>
+            </div>
+            <p className="mt-4 text-xs leading-5 text-[#737875]">After finalization, meter readings and draft financial values for this cycle will no longer be silently editable. Tenant delivery remains a separate Step 6 action.</p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" onClick={() => setShowFinalizeConfirm(false)} disabled={finalizing} className="rounded-lg px-4 py-2.5 text-sm font-semibold text-[#424845] hover:bg-[#edfdf3] disabled:opacity-50">Cancel</button>
+              <button type="button" onClick={() => void finalizeInvoices()} disabled={finalizing} className="inline-flex items-center gap-2 rounded-lg bg-[#10211c] px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#1a3029] disabled:opacity-60"><span className="material-symbols-outlined text-[18px]">{finalizing ? 'progress_activity' : 'lock'}</span>{finalizing ? 'Finalizing…' : 'Finalize invoices'}</button>
+            </div>
           </div>
         </div>
       )}
@@ -1155,6 +1503,28 @@ function ReadinessRow({
       <span className={`material-symbols-outlined ${ready ? 'text-[#1e6a59]' : 'text-[#ba1a1a]'}`}>
         {ready ? 'check_circle' : 'error'}
       </span>
+    </div>
+  )
+}
+
+function InvoiceMetric({
+  label,
+  value,
+  icon,
+  dark = false,
+}: {
+  label: string
+  value: string
+  icon: string
+  dark?: boolean
+}) {
+  return (
+    <div className={dark ? 'rounded-2xl bg-[#10211c] p-5 text-white shadow-[0_10px_28px_rgba(16,33,28,0.12)]' : 'rounded-2xl bg-white p-5 shadow-[0_10px_28px_rgba(16,33,28,0.05)]'}>
+      <div className="flex items-center justify-between">
+        <span className={dark ? 'text-[11px] font-bold uppercase tracking-[0.12em] text-[#b7cbc3]' : 'text-[11px] font-bold uppercase tracking-[0.12em] text-[#737875]'}>{label}</span>
+        <span className={dark ? 'material-symbols-outlined flex h-9 w-9 items-center justify-center rounded-xl bg-[#00231b] text-[19px] text-[#a8f1da]' : 'material-symbols-outlined flex h-9 w-9 items-center justify-center rounded-xl bg-[#e7f7ee] text-[19px] text-[#1e6a59]'}>{icon}</span>
+      </div>
+      <div className={dark ? 'mt-4 text-2xl font-bold tracking-tight text-white' : 'mt-4 text-2xl font-bold tracking-tight text-[#111e19]'}>{value}</div>
     </div>
   )
 }
