@@ -5,6 +5,7 @@ import {
 } from 'react'
 
 import type { User } from '@supabase/supabase-js'
+import { useNavigate } from 'react-router-dom'
 
 import { supabase } from '../lib/supabase'
 
@@ -47,6 +48,8 @@ export default function DwellioShell({
   activeNav,
   children,
 }: DwellioShellProps) {
+  const navigate = useNavigate()
+
   const [organizationName, setOrganizationName] =
     useState('Your organization')
 
@@ -84,12 +87,12 @@ export default function DwellioShell({
     setNotice('')
 
     if (item === 'Dashboard') {
-      window.location.assign('/')
+      navigate('/')
       return
     }
 
     if (item === 'Billing') {
-      window.location.assign('/billing')
+      navigate('/billing')
       return
     }
 
@@ -279,6 +282,70 @@ export default function DwellioShell({
 
         .dwellio-embedded-billing > div > div > header {
           display: none !important;
+        }
+
+        .dwellio-embedded-billing > .min-h-screen:has(> .animate-spin) {
+          position: relative;
+          display: block !important;
+          min-height: calc(100vh - 64px) !important;
+          padding: 30px 32px !important;
+          overflow: hidden;
+          background:
+            linear-gradient(#dfece5 0 0) 32px 30px / 240px 30px no-repeat,
+            linear-gradient(#e6f0ea 0 0) 32px 82px / 240px 42px no-repeat,
+            linear-gradient(#e6f0ea 0 0) 288px 82px / 220px 42px no-repeat,
+            linear-gradient(#ffffff 0 0) 32px 146px / calc(100% - 64px) 112px no-repeat,
+            linear-gradient(#ffffff 0 0) 32px 278px / calc((100% - 106px) / 4) 112px no-repeat,
+            linear-gradient(#ffffff 0 0) calc(25% + 20px) 278px / calc((100% - 106px) / 4) 112px no-repeat,
+            linear-gradient(#ffffff 0 0) calc(50% + 8px) 278px / calc((100% - 106px) / 4) 112px no-repeat,
+            linear-gradient(#ffffff 0 0) calc(75% - 4px) 278px / calc((100% - 106px) / 4) 112px no-repeat,
+            linear-gradient(#ffffff 0 0) 32px 410px / calc(66% - 38px) 250px no-repeat,
+            linear-gradient(#ffffff 0 0) calc(66% + 12px) 410px / calc(34% - 44px) 250px no-repeat,
+            #edfdf3 !important;
+        }
+
+        .dwellio-embedded-billing > .min-h-screen:has(> .animate-spin) > .animate-spin {
+          display: none !important;
+        }
+
+        .dwellio-embedded-billing > .min-h-screen:has(> .animate-spin)::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          transform: translateX(-100%);
+          background: linear-gradient(
+            100deg,
+            transparent 34%,
+            rgba(255, 255, 255, .48) 50%,
+            transparent 66%
+          );
+          animation: dwellio-shell-shimmer 1.55s ease-in-out infinite;
+          pointer-events: none;
+        }
+
+        @keyframes dwellio-shell-shimmer {
+          to {
+            transform: translateX(100%);
+          }
+        }
+
+        @media (max-width: 700px) {
+          .dwellio-embedded-billing > .min-h-screen:has(> .animate-spin) {
+            padding: 22px 18px !important;
+            background:
+              linear-gradient(#dfece5 0 0) 18px 22px / 210px 28px no-repeat,
+              linear-gradient(#e6f0ea 0 0) 18px 70px / calc(100% - 36px) 42px no-repeat,
+              linear-gradient(#ffffff 0 0) 18px 132px / calc(100% - 36px) 112px no-repeat,
+              linear-gradient(#ffffff 0 0) 18px 264px / calc(100% - 36px) 112px no-repeat,
+              linear-gradient(#ffffff 0 0) 18px 396px / calc(100% - 36px) 230px no-repeat,
+              #edfdf3 !important;
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .dwellio-embedded-billing > .min-h-screen:has(> .animate-spin)::after {
+            animation: none;
+          }
         }
       `}</style>
     </div>
