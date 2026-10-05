@@ -65,6 +65,24 @@ function numberValue(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+function createMeterSerialNumber(
+  serviceId: string,
+  unitId: string,
+) {
+  const randomSuffix = globalThis.crypto
+    .randomUUID()
+    .replaceAll('-', '')
+    .slice(0, 10)
+    .toUpperCase()
+
+  return [
+    'DW',
+    serviceId.slice(0, 8).toUpperCase(),
+    unitId.slice(0, 8).toUpperCase(),
+    randomSuffix,
+  ].join('-')
+}
+
 function logServiceError(
   operation: string,
   error: unknown,
@@ -336,6 +354,10 @@ async function ensureUsageMetersAndOpeningReadings(
       missingRows.map(item => ({
         unit_id: item.unitId,
         service_id: serviceId,
+        serial_number: createMeterSerialNumber(
+          serviceId,
+          item.unitId,
+        ),
         status: 'active',
         installed_at: effectiveFrom,
       })),
