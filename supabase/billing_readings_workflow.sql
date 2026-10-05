@@ -3,6 +3,61 @@
 
 begin;
 
+create or replace function public.create_billing_cycle(
+  p_property_id uuid
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $function$
+declare
+  v_start date := date_trunc('month', current_date)::date;
+  v_end date := (date_trunc('month', current_date) + interval '1 month - 1 day')::date;
+  v_cycle_id uuid;
+begin
+  if not public.can_work_property(p_property_id) then
+    raise exception 'Not authorized to create a billing cycle for this property';
+  end if;
+
+  perform pg_advisory_xact_lock(
+    hashtextextended(p_property_id::text || ':' || v_start::text, 0)
+  );
+
+  select id
+  into v_cycle_id
+  from public.billing_cycles
+  where property_id = p_property_id
+    and period_start = v_start
+  limit 1;
+
+  if v_cycle_id is not null then
+    return v_cycle_id;
+  end if;
+
+  insert into public.billing_cycles (
+    property_id,
+    period_start,
+    period_end,
+    status,
+    created_by
+  )
+  values (
+    p_property_id,
+    v_start,
+    v_end,
+    'draft',
+    auth.uid()
+  )
+  returning id into v_cycle_id;
+
+  return v_cycle_id;
+end;
+$function$;
+
+revoke all on function public.create_billing_cycle(uuid) from public;
+grant execute on function public.create_billing_cycle(uuid) to authenticated;
+
 alter table public.meter_readings
   add column if not exists billing_cycle_id uuid;
 
