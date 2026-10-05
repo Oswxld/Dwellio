@@ -11,6 +11,8 @@ import type {
   BillingProperty,
   BillingServiceSummary,
   DraftDetail,
+  FinalizedInvoiceDetail,
+  FinalizedInvoiceRow,
   GenerateDraftsResult,
   WorkspaceIdentity,
 } from './types'
@@ -666,11 +668,90 @@ export async function correctMeterReading(
   }
 }
 
+export async function fetchFinalizedInvoices(
+  cycle: BillingCycle,
+  drafts: BillDraftRow[],
+): Promise<FinalizedInvoiceRow[]> {
+  const draftIds = drafts.map(draft => draft.id)
+  if (draftIds.length === 0) return []
+
+  const { data, error } = await supabase
+    .from('invoices')
+    .select('*')
+    .in('bill_draft_id', draftIds)
+    .neq('status', 'void')
+    .order('created_at', { ascending: true })
+
+  if (error) throw error
+
+  const draftMap = new Map(drafts.map(draft => [draft.id, draft]))
+
+  return (data ?? []).flatMap(rawInvoice => {
+    const row = rawInvoice as Record<string, unknown>
+    const billDraftId = String(row.bill_draft_id ?? '')
+    const draft = draftMap.get(billDraftId)
+    if (!draft) return []
+
+    const totalInvoiced = numberValue(
+      row.total_receivable ??
+      row.total_amount ??
+      row.amount ??
+      draft.total_payable,
+    )
+
+    const totalPaid = numberValue(
+      row.total_paid ??
+      row.paid_amount ??
+      0,
+    )
+
+    const outstanding = row.outstanding_amount === null || row.outstanding_amount === undefined
+      ? Math.max(totalInvoiced - totalPaid, 0)
+      : numberValue(row.outstanding_amount)
+
+    return [{
+      id: String(row.id ?? ''),
+      bill_draft_id: billDraftId,
+      invoice_number: String(row.invoice_number ?? 'Invoice'),
+      status: String(row.status ?? 'issued'),
+      current_charges: draft.current_charges,
+      previous_balance: draft.previous_balance,
+      total_invoiced: totalInvoiced,
+      total_paid: totalPaid,
+      outstanding_amount: outstanding,
+      due_date: typeof row.due_date === 'string' ? row.due_date : null,
+      issued_at: typeof row.issued_at === 'string' ? row.issued_at : null,
+      created_at: typeof row.created_at === 'string' ? row.created_at : draft.created_at,
+      tenantName: draft.tenantName,
+      unitName: draft.unitName,
+      billing_context: draft.billing_context,
+      draft,
+    }]
+  })
+}
+
+export async function fetchFinalizedInvoiceDetail(
+  invoice: FinalizedInvoiceRow,
+): Promise<FinalizedInvoiceDetail> {
+  return {
+    invoice,
+    draftDetail: await fetchDraftDetail(invoice.draft),
+  }
+}
+
 export async function finalizeBillingCycle(billingCycleId: string) {
   const { data, error } = await supabase.rpc('finalize_billing_cycle', {
     p_billing_cycle_id: billingCycleId,
   })
 
-  if (error) throw error
+  if (error) {
+    logBillingRepositoryError(
+      'finalize billing cycle rpc',
+      error,
+      { billingCycleId },
+    )
+    throw error
+  }
+
   return data
 }
