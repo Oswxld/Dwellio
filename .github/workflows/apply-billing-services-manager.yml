@@ -1,0 +1,37 @@
+name: Apply billing services manager
+
+on:
+  push:
+    branches:
+      - chatgpt/billing-services-manager
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: chatgpt/billing-services-manager
+          fetch-depth: 0
+
+      - name: Insert panel into BillingPage
+        run: python scripts/insert_billing_services_panel.py
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Commit integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/pages/BillingPage.tsx
+          git commit -m "feat: mount billing services manager on billing page"
+          git push origin HEAD:chatgpt/billing-services-manager
