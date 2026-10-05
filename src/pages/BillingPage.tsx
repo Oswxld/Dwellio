@@ -20,6 +20,9 @@ import {
   fetchBillingDashboard,
   fetchBillingProperties,
   fetchDraftDetail,
+  fetchFinalizedInvoiceDetail,
+  fetchFinalizedInvoices,
+  finalizeBillingCycle,
   generatePropertyBillDrafts,
 } from '../features/billing/data/billingRepository'
 
@@ -30,6 +33,8 @@ import type {
   BillingDashboardData,
   BillingProperty,
   DraftDetail,
+  FinalizedInvoiceDetail,
+  FinalizedInvoiceRow,
   GenerateDraftsResult,
 } from '../features/billing/data/types'
 
@@ -103,6 +108,16 @@ function displayContext(value: string) {
   return 'Normal'
 }
 
+function displayDate(value: string | null) {
+  if (!value) return '—'
+  const normalized = value.length === 10 ? value + 'T00:00:00' : value
+  return new Date(normalized).toLocaleDateString('en-KE', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
 const steps: Array<{
   id: BillingStep
   number: number
@@ -132,6 +147,13 @@ export default function BillingPage() {
   const [openingDraft, setOpeningDraft] = useState(false)
   const [approvingDraft, setApprovingDraft] = useState(false)
   const [approvingAll, setApprovingAll] = useState(false)
+  const [finalizing, setFinalizing] = useState(false)
+  const [showFinalizeConfirm, setShowFinalizeConfirm] = useState(false)
+  const [finalizedInvoices, setFinalizedInvoices] = useState<FinalizedInvoiceRow[]>([])
+  const [selectedInvoice, setSelectedInvoice] = useState<FinalizedInvoiceDetail | null>(null)
+  const [loadingInvoices, setLoadingInvoices] = useState(false)
+  const [invoiceSearch, setInvoiceSearch] = useState('')
+  const [invoiceStatusFilter, setInvoiceStatusFilter] = useState('all')
   const [readingCorrection, setReadingCorrection] = useState<ReadingCorrectionTarget | null>(null)
   const [newReadingValue, setNewReadingValue] = useState('')
   const [savingReadingCorrection, setSavingReadingCorrection] = useState(false)
@@ -152,6 +174,7 @@ export default function BillingPage() {
     steps.find(item => item.id === step)?.number ?? 1
 
   const draftsExist = dashboard.draftCount > 0
+  const invoicesExist = dashboard.invoiceCount > 0
   const allDraftsApproved =
     dashboard.draftCount > 0 &&
     dashboard.approvedCount === dashboard.draftCount
@@ -170,6 +193,30 @@ export default function BillingPage() {
   const approvalPercent = dashboard.draftCount > 0
     ? Math.round((dashboard.approvedCount / dashboard.draftCount) * 100)
     : 0
+
+  const finalizedCurrentCharges = finalizedInvoices.reduce(
+    (sum, invoice) => sum + invoice.current_charges,
+    0,
+  )
+  const finalizedArrears = finalizedInvoices.reduce(
+    (sum, invoice) => sum + invoice.previous_balance,
+    0,
+  )
+  const finalizedTotal = finalizedInvoices.reduce(
+    (sum, invoice) => sum + invoice.total_invoiced,
+    0,
+  )
+  const visibleInvoices = finalizedInvoices.filter(invoice => {
+    const query = invoiceSearch.trim().toLowerCase()
+    const matchesQuery = !query || [
+      invoice.invoice_number,
+      invoice.tenantName,
+      invoice.unitName,
+    ].some(value => value.toLowerCase().includes(query))
+    const matchesStatus =
+      invoiceStatusFilter === 'all' || invoice.status === invoiceStatusFilter
+    return matchesQuery && matchesStatus
+  })
 
   const configurationReady =
     dashboard.configurationIssues.every(issue =>
@@ -211,6 +258,10 @@ export default function BillingPage() {
         setSuccess('')
         setGenerationResult(null)
         setSelectedDraft(null)
+        setSelectedInvoice(null)
+        setFinalizedInvoices([])
+        setInvoiceSearch('')
+        setInvoiceStatusFilter('all')
 
         const rows = await fetchBillingCycles(property!.id)
         setCycles(rows)
@@ -237,7 +288,9 @@ export default function BillingPage() {
       const next = await fetchBillingDashboard(property.id, cycle)
       setDashboard(next)
 
-      if (next.draftCount > 0) {
+      if (next.invoiceCount > 0) {
+        setStep('invoices')
+      } else if (next.draftCount > 0) {
         setStep('review')
       }
     } catch (loadError) {
@@ -254,6 +307,25 @@ export default function BillingPage() {
 
     void refreshDashboard()
   }, [cycle, property, refreshDashboard])
+
+  useEffect(() => {
+    if (step !== 'invoices' || !cycle || dashboard.invoiceCount === 0) return
+
+    async function loadInvoices() {
+      try {
+        setLoadingInvoices(true)
+        setError('')
+        setFinalizedInvoices(await fetchFinalizedInvoices(cycle!, dashboard.drafts))
+      } catch (invoiceError) {
+        console.error('[BillingPage] finalized invoice load failed', invoiceError)
+        setError(errorMessage(invoiceError, 'Could not load finalized invoices.'))
+      } finally {
+        setLoadingInvoices(false)
+      }
+    }
+
+    void loadInvoices()
+  }, [step, cycle, dashboard.invoiceCount, dashboard.drafts])
 
   const handleReadingsCompletion = useCallback((
     _complete: boolean,
@@ -490,14 +562,66 @@ export default function BillingPage() {
     }
   }
 
+  async function finalizeInvoices() {
+    if (!cycle || !property || !allDraftsApproved || finalizing) return
+
+    try {
+      setFinalizing(true)
+      setError('')
+      setSuccess('')
+
+      await finalizeBillingCycle(cycle.id)
+
+      const refreshedCycles = await fetchBillingCycles(property.id)
+      setCycles(refreshedCycles)
+      const refreshedCycle = refreshedCycles.find(item => item.id === cycle.id) ?? cycle
+
+      const nextDashboard = await fetchBillingDashboard(property.id, refreshedCycle)
+      setDashboard(nextDashboard)
+
+      const invoices = await fetchFinalizedInvoices(refreshedCycle, nextDashboard.drafts)
+      setFinalizedInvoices(invoices)
+      setSelectedDraft(null)
+      setShowFinalizeConfirm(false)
+      setStep('invoices')
+      setSuccess(
+        String(invoices.length) + ' invoice' + (invoices.length === 1 ? '' : 's') +
+        ' finalized for ' + cycleLabel(refreshedCycle) + '.',
+      )
+    } catch (finalizeError) {
+      console.error('[BillingPage] invoice finalization failed', finalizeError)
+      setError(errorMessage(finalizeError, 'Could not finalize this billing cycle.'))
+    } finally {
+      setFinalizing(false)
+    }
+  }
+
+  async function openFinalizedInvoice(invoice: FinalizedInvoiceRow) {
+    try {
+      setLoadingInvoices(true)
+      setError('')
+      setSelectedInvoice(await fetchFinalizedInvoiceDetail(invoice))
+    } catch (invoiceError) {
+      console.error('[BillingPage] finalized invoice detail failed', invoiceError)
+      setError(errorMessage(invoiceError, 'Could not load this finalized invoice.'))
+    } finally {
+      setLoadingInvoices(false)
+    }
+  }
+
   function navigate(target: BillingStep) {
     if (!cycle) return
 
-    if (target === 'invoices' || target === 'send') {
+    if (target === 'send') return
+
+    if (target === 'invoices' && !invoicesExist) return
+
+    if (invoicesExist && target !== 'invoices') {
+      setError('Invoices are finalized for this cycle. Billing inputs and drafts are now locked.')
       return
     }
 
-    if (draftsExist && target !== 'review') {
+    if (draftsExist && target !== 'review' && target !== 'invoices') {
       setError('Drafts already exist for this cycle. Finish reviewing them before changing the billing inputs.')
       return
     }
@@ -621,16 +745,21 @@ export default function BillingPage() {
                   {steps.map(item => {
                     const active = item.id === step
                     const completed = item.id === 'review'
-                      ? allDraftsApproved
-                      : item.number < currentStepNumber
-                    const futureStep = item.number > 4
-                    const locked = futureStep || (draftsExist && item.number < 4)
+                      ? allDraftsApproved || invoicesExist
+                      : item.id === 'invoices'
+                        ? false
+                        : item.number < currentStepNumber
+                    const locked =
+                      item.id === 'send' ||
+                      (item.id === 'invoices' && !invoicesExist) ||
+                      (invoicesExist && item.number < 5) ||
+                      (!invoicesExist && draftsExist && item.number < 4)
 
                     return (
                       <button
                         key={item.id}
                         type="button"
-                        disabled={locked || (item.number > currentStepNumber && item.id !== 'review')}
+                        disabled={locked || (item.number > currentStepNumber && item.id !== 'review' && item.id !== 'invoices')}
                         onClick={() => navigate(item.id)}
                         className={`flex items-center gap-2 rounded-xl border p-3 text-left transition ${
                           active
