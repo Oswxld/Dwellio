@@ -1,6 +1,5 @@
 import {
   lazy,
-  Suspense,
   useEffect,
   useState,
 } from 'react'
@@ -11,7 +10,9 @@ import type {
 } from '@supabase/supabase-js'
 
 import {
-  useLocation,
+  Navigate,
+  Route,
+  Routes,
   useNavigate,
 } from 'react-router-dom'
 
@@ -19,9 +20,6 @@ import { supabase } from './lib/supabase'
 
 import DwellioShell
   from './layouts/DwellioShell'
-
-import PageSkeleton
-  from './components/loading/PageSkeleton'
 
 import AuthPage from './pages/AuthPage'
 import OnboardingPage from './pages/OnboardingPage'
@@ -37,7 +35,6 @@ const BillingPage = lazy(
 )
 
 export default function App() {
-  const location = useLocation()
   const navigate = useNavigate()
 
   const [session, setSession] =
@@ -212,64 +209,51 @@ export default function App() {
     )
   }
 
-  const pathname =
-    location.pathname
-
-  if (
-    pathname ===
-    '/tenants/new'
-  ) {
-    return (
-      <TenantOnboardingPage
-        organizationId={
-          organizationId
-        }
-        onCancel={() => {
-          navigate('/')
-        }}
-        onComplete={() => {
-          navigate('/')
-        }}
-      />
-    )
-  }
-
-  const billingActive =
-    pathname === '/billing'
-
   return (
-    <DwellioShell
-      user={user}
-      organizationId={organizationId}
-      activeNav={
-        billingActive
-          ? 'Billing'
-          : 'Dashboard'
-      }
-    >
-      <Suspense
-        fallback={
-          <PageSkeleton
-            variant={
-              billingActive
-                ? 'billing'
-                : 'dashboard'
-            }
+    <Routes>
+      <Route
+        path="/tenants/new"
+        element={
+          <TenantOnboardingPage
+            organizationId={organizationId}
+            onCancel={() => navigate('/')}
+            onComplete={() => navigate('/')}
+          />
+        }
+      />
+
+      <Route
+        element={
+          <DwellioShell
+            user={user}
+            organizationId={organizationId}
           />
         }
       >
-        {billingActive ? (
-          <div className="dwellio-embedded-billing">
-            <BillingPage />
-          </div>
-        ) : (
-          <div className="dwellio-embedded-dashboard">
+        <Route
+          index
+          element={
             <DashboardPage
               user={user}
             />
-          </div>
-        )}
-      </Suspense>
-    </DwellioShell>
+          }
+        />
+
+        <Route
+          path="billing"
+          element={<BillingPage />}
+        />
+
+        <Route
+          path="*"
+          element={
+            <Navigate
+              to="/"
+              replace
+            />
+          }
+        />
+      </Route>
+    </Routes>
   )
 }

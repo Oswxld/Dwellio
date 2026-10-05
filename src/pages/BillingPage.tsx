@@ -12,7 +12,6 @@ import {
   fetchBillingDashboard,
   fetchBillingProperties,
   fetchDraftDetail,
-  fetchWorkspaceIdentity,
   finalizeBillingCycle,
   generatePropertyBillDrafts,
 } from '../features/billing/data/billingRepository'
@@ -25,8 +24,9 @@ import type {
   BillingProperty,
   DraftDetail,
   GenerateDraftsResult,
-  WorkspaceIdentity,
 } from '../features/billing/data/types'
+
+import PageSkeleton from '../components/loading/PageSkeleton'
 
 
 function money(
@@ -167,22 +167,6 @@ export default function BillingPage() {
     setCycleId,
   ] =
     useState('')
-
-
-  const [
-    identity,
-    setIdentity,
-  ] =
-    useState<WorkspaceIdentity>({
-      organizationName:
-        'Your organization',
-
-      role:
-        'Landlord',
-
-      firstName:
-        'there',
-    })
 
 
   const [
@@ -411,30 +395,14 @@ export default function BillingPage() {
         )
 
 
-        const [
-          cycleRows,
-          workspace,
-        ] =
-          await Promise.all([
-
-            fetchBillingCycles(
-              property!.id,
-            ),
-
-            fetchWorkspaceIdentity(
-              property!,
-            ),
-
-          ])
+        const cycleRows =
+          await fetchBillingCycles(
+            property!.id,
+          )
 
 
         setCycles(
           cycleRows,
-        )
-
-
-        setIdentity(
-          workspace,
         )
 
 
@@ -1261,163 +1229,22 @@ export default function BillingPage() {
     loading &&
     properties.length === 0
   ) {
-
     return (
-      <div className="min-h-screen bg-[#edfdf3] grid place-items-center">
-        <div className="w-8 h-8 rounded-full border-[3px] border-[#dcece2] border-t-[#1e6a59] animate-spin" />
-      </div>
+      <PageSkeleton variant="billing" />
     )
   }
-
 
 
   return (
     <div
       className="
-        min-h-screen
+        billing-page
+        min-h-[calc(100vh-68px)]
         bg-[#edfdf3]
         font-['Manrope']
         text-[#111e19]
       "
     >
-
-      <DwellioSidebar
-        organizationName={
-          identity.organizationName
-        }
-        firstName={
-          identity.firstName
-        }
-        role={
-          identity.role
-        }
-      />
-
-
-      <div className="lg:pl-[260px]">
-
-        {/* TOPBAR */}
-
-        <header
-          className="
-            sticky
-            top-0
-            z-40
-            h-16
-            bg-white/90
-            backdrop-blur-xl
-            shadow-[0_1px_8px_rgba(0,0,0,.04)]
-            px-4
-            sm:px-6
-            lg:px-8
-            flex
-            items-center
-            justify-between
-          "
-        >
-
-          <div className="hidden sm:flex relative w-full max-w-md items-center">
-
-            <span
-              className="
-                material-symbols-outlined
-                absolute
-                left-3
-                text-[#737875]
-                text-[20px]
-              "
-            >
-              search
-            </span>
-
-            <input
-              value={search}
-              onChange={
-                event =>
-                  setSearch(
-                    event.target.value,
-                  )
-              }
-              className="
-                w-full
-                h-10
-                pl-10
-                pr-3
-                bg-[#e7f7ee]
-                rounded-lg
-                text-sm
-                placeholder:text-[#737875]
-                outline-none
-                focus:bg-white
-              "
-              placeholder="Search tenants or units..."
-            />
-
-          </div>
-
-
-          <div className="sm:hidden font-bold text-lg">
-            dwellio
-            <span className="text-[#1e6a59]">
-              .
-            </span>
-          </div>
-
-
-          <div className="flex items-center gap-3">
-
-            <button
-              type="button"
-              className="
-                relative
-                p-2
-                rounded-lg
-                text-[#424845]
-                hover:bg-[#e7f7ee]
-              "
-            >
-              <span className="material-symbols-outlined text-[22px]">
-                notifications
-              </span>
-
-              <span
-                className="
-                  absolute
-                  top-1.5
-                  right-1.5
-                  w-2
-                  h-2
-                  rounded-full
-                  bg-[#ba1a1a]
-                "
-              />
-            </button>
-
-
-            <div
-              className="
-                w-8
-                h-8
-                rounded-full
-                bg-[#000504]
-                text-white
-                flex
-                items-center
-                justify-center
-                text-xs
-                font-bold
-              "
-            >
-              {identity.firstName[0]
-                ?.toUpperCase()}
-            </div>
-
-          </div>
-
-        </header>
-
-
-
         <main
           className="
             px-4
@@ -3131,10 +2958,6 @@ export default function BillingPage() {
 
         </main>
 
-      </div>
-
-
-
       {/* DRAFT DRAWER */}
 
       {selectedDraft && (
@@ -3159,10 +2982,10 @@ export default function BillingPage() {
         />
 
       )}
-
     </div>
   )
 }
+
 
 
 
@@ -4111,306 +3934,5 @@ function DraftDrawer({
       </aside>
 
     </div>
-  )
-}
-
-
-
-function DwellioSidebar({
-  organizationName,
-  firstName,
-  role,
-}: {
-  organizationName: string
-  firstName: string
-  role: string
-}) {
-
-  const nav = [
-    [
-      'Dashboard',
-      'dashboard',
-      '/',
-    ],
-
-    [
-      'Properties',
-      'apartment',
-      '/properties',
-    ],
-
-    [
-      'Tenants',
-      'group',
-      '/tenants',
-    ],
-
-    [
-      'Leases',
-      'history_edu',
-      '/leases',
-    ],
-
-    [
-      'Billing',
-      'receipt_long',
-      '/billing',
-    ],
-
-    [
-      'Maintenance',
-      'build',
-      '/maintenance',
-    ],
-
-    [
-      'Staff',
-      'badge',
-      '/staff',
-    ],
-
-    [
-      'Announcements',
-      'campaign',
-      '/announcements',
-    ],
-
-    [
-      'Reports',
-      'analytics',
-      '/reports',
-    ],
-
-    [
-      'Documents',
-      'folder',
-      '/documents',
-    ],
-  ] as const
-
-
-  return (
-    <aside
-      className="
-        hidden
-        lg:flex
-        fixed
-        left-0
-        top-0
-        z-50
-        h-full
-        w-[260px]
-        bg-[#10211c]
-        text-white
-        flex-col
-        justify-between
-        shadow-[0_14px_40px_rgba(22,42,35,.06)]
-      "
-    >
-
-      <div>
-
-        <div
-          className="
-            h-16
-            px-6
-            flex
-            items-center
-            gap-2
-          "
-        >
-
-          <div
-            className="
-              w-7
-              h-7
-              rounded-lg
-              bg-[#1e6a59]
-              flex
-              items-center
-              justify-center
-              font-bold
-            "
-          >
-            d
-          </div>
-
-
-          <span
-            className="
-              font-['Newsreader']
-              text-xl
-            "
-          >
-            dwellio
-            <span className="text-[#a8f1da]">
-              .
-            </span>
-          </span>
-
-        </div>
-
-
-        <div className="px-4">
-
-          <div
-            className="
-              px-2
-              text-[9px]
-              tracking-[.16em]
-              text-[#778a83]
-              uppercase
-              font-bold
-            "
-          >
-            Workspace
-          </div>
-
-
-          <div
-            className="
-              mt-2
-              p-3
-              rounded-lg
-              bg-[#00231b]
-            "
-          >
-            <strong className="block text-sm truncate">
-              {organizationName}
-            </strong>
-
-            <span className="text-[10px] text-[#778a83]">
-              Landlord workspace
-            </span>
-          </div>
-
-        </div>
-
-
-        <nav
-          className="
-            mt-4
-            px-4
-            space-y-1
-          "
-        >
-
-          {nav.map(
-            (
-              [
-                label,
-                icon,
-                href,
-              ],
-            ) => {
-
-              const active =
-                label ===
-                'Billing'
-
-
-              return (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={
-                    () => {
-                      window.location.href =
-                        href
-                    }
-                  }
-                  className={`
-                    w-full
-                    flex
-                    items-center
-                    gap-3
-                    px-4
-                    py-2.5
-                    rounded-lg
-                    text-sm
-                    text-left
-
-                    ${
-                      active
-                        ? 'bg-[#1e6a59] text-white font-semibold'
-                        : 'text-[#778a83] hover:bg-[#00231b] hover:text-white'
-                    }
-                  `}
-                >
-                  <span className="material-symbols-outlined text-[19px]">
-                    {icon}
-                  </span>
-
-                  {label}
-                </button>
-              )
-            },
-          )}
-
-        </nav>
-
-      </div>
-
-
-      <div className="p-4">
-
-        <div
-          className="
-            p-3
-            rounded-lg
-            bg-[#00231b]/70
-            flex
-            items-center
-            gap-3
-          "
-        >
-
-          <div
-            className="
-              w-8
-              h-8
-              rounded-full
-              bg-[#1e6a59]
-              flex
-              items-center
-              justify-center
-              font-bold
-              text-xs
-            "
-          >
-            {firstName[0]
-              ?.toUpperCase()}
-          </div>
-
-
-          <div className="min-w-0">
-
-            <strong
-              className="
-                block
-                text-xs
-                truncate
-              "
-            >
-              {firstName}
-            </strong>
-
-            <span
-              className="
-                block
-                text-[9px]
-                text-[#778a83]
-              "
-            >
-              {role}
-            </span>
-
-          </div>
-
-        </div>
-
-      </div>
-
-    </aside>
   )
 }
