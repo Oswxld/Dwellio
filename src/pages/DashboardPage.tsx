@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import type { User } from '@supabase/supabase-js'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import {
   getDashboardProperties,
@@ -53,6 +54,8 @@ function getGreeting() {
 export default function DashboardPage({
   user,
 }: DashboardPageProps) {
+  const navigate = useNavigate()
+
   const [summary, setSummary] =
     useState<DashboardSummary | null>(null)
 
@@ -63,9 +66,6 @@ export default function DashboardPage({
 
   const [error, setError] =
     useState<string | null>(null)
-
-  const [activeNav, setActiveNav] =
-    useState('Dashboard')
 
   const [notice, setNotice] = useState('')
 
@@ -347,179 +347,11 @@ export default function DashboardPage({
     }
 
     if (item.href) {
-      window.location.href = item.href
+      navigate(item.href)
     }
   }
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="sidebar-brand">
-          <div className="brand-mark">d</div>
-
-          <div className="brand-word">
-            dwellio<span>.</span>
-          </div>
-        </div>
-
-        <div className="workspace-label">
-          WORKSPACE
-        </div>
-
-        <div className="workspace-card">
-          <div className="workspace-avatar">
-            {(
-              summary?.organization_name?.[0] ??
-              'D'
-            ).toUpperCase()}
-          </div>
-
-          <div className="workspace-copy">
-            <strong>
-              {summary?.organization_name ??
-                'Your organization'}
-            </strong>
-
-            <span>
-              Landlord workspace
-            </span>
-          </div>
-
-          <span className="workspace-chevron">
-            ⌄
-          </span>
-        </div>
-
-        <nav
-          className="main-nav"
-          aria-label="Main navigation"
-        >
-          {[
-            'Dashboard',
-            'Properties',
-            'Tenants',
-            'Leases',
-            'Billing',
-            'Maintenance',
-            'Staff',
-            'Announcements',
-            'Reports',
-            'Documents',
-          ].map((item, index) => (
-            <button
-              key={item}
-              className={`nav-item ${
-                activeNav === item
-                  ? 'active'
-                  : ''
-              }`}
-              onClick={() => {
-                setActiveNav(item)
-
-                if (item !== 'Dashboard') {
-                  setNotice(
-                    `${item} is the next module — this dashboard keeps the navigation ready for it.`,
-                  )
-                } else {
-                  setNotice('')
-                }
-              }}
-              type="button"
-            >
-              <span className="nav-icon">
-                {
-                  [
-                    '⌂',
-                    '▦',
-                    '♙',
-                    '▤',
-                    '◈',
-                    '⚒',
-                    '♟',
-                    '◌',
-                    '↗',
-                    '□',
-                  ][index]
-                }
-              </span>
-
-              <span>{item}</span>
-
-              {item === 'Dashboard' && (
-                <span className="nav-live" />
-              )}
-            </button>
-          ))}
-        </nav>
-
-        <div className="sidebar-bottom">
-          <button
-            className="nav-item"
-            type="button"
-            onClick={() =>
-              setActiveNav('Settings')
-            }
-          >
-            <span className="nav-icon">
-              ⚙
-            </span>
-
-            <span>Settings</span>
-          </button>
-
-          <button
-            className="profile-mini"
-            type="button"
-            onClick={() =>
-              void supabase.auth.signOut()
-            }
-          >
-            <div className="avatar">
-              {firstName[0].toUpperCase()}
-            </div>
-
-            <div>
-              <strong>{firstName}</strong>
-              <span>Sign out</span>
-            </div>
-
-            <span>↪</span>
-          </button>
-        </div>
-      </aside>
-
-      <main className="dashboard-main">
-        <header className="topbar">
-          <div className="mobile-brand">
-            <span className="brand-word">
-              dwellio<span>.</span>
-            </span>
-          </div>
-
-          <div className="topbar-right">
-            <button
-              className="icon-button"
-              aria-label="Search"
-              type="button"
-            >
-              ⌕
-            </button>
-
-            <button
-              className="icon-button notification-button"
-              aria-label="Notifications"
-              type="button"
-            >
-              ♢
-              <span className="notification-dot" />
-            </button>
-
-            <div className="topbar-avatar">
-              {firstName[0].toUpperCase()}
-            </div>
-          </div>
-        </header>
-
         <div className="dashboard-content">
           <section className="welcome-row">
             <div>
@@ -995,8 +827,6 @@ export default function DashboardPage({
             </div>
           </section>
         </div>
-      </main>
-    </div>
   )
 }
 
