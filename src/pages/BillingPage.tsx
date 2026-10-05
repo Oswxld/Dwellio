@@ -27,6 +27,7 @@ import type {
 } from '../features/billing/data/types'
 
 import PageSkeleton from '../components/loading/PageSkeleton'
+import BillingServicesPanel from '../features/billing/components/BillingServicesPanel'
 
 
 
@@ -1767,6 +1768,14 @@ export default function BillingPage() {
                 />
 
               </section>
+
+
+              <BillingServicesPanel
+                propertyId={propertyId}
+                effectiveFrom={cycle.period_start}
+                effectiveDate={cycle.period_end}
+                onChanged={refreshDashboard}
+              />
 
 
 
