@@ -55,18 +55,50 @@ export async function sendInvoiceSmsBatch(
 
   if (error) {
     let detail = error.message
+    let responseStatus: number | null = null
+    let responseStatusText: string | null = null
+    let underlyingCause: string | null = null
+
     if (error.context instanceof Response) {
+      responseStatus = error.context.status
+      responseStatusText = error.context.statusText
       try {
-        const body = await error.context.clone().json()
-        detail = typeof body?.error === 'string' ? body.error : detail
+        const body: unknown = await error.context.clone().json()
+        if (body !== null && typeof body === 'object' && 'error' in body) {
+          const message = (body as { error?: unknown }).error
+          if (typeof message === 'string') detail = message
+        }
       } catch {
-        // Keep the original network error message.
+        // Response body may not be JSON; retain the original error.
       }
+    } else if (error.context instanceof Error) {
+      underlyingCause = error.context.message
+      detail = `${detail}: ${underlyingCause}`
     }
-    throw new Error(detail)
+
+    // Log the original SDK error/context, without logging invoice phone
+    // numbers, user credentials, or SMS contents.
+    console.error('[InvoiceDeliveryRepository] send-invoices Edge Function failed', {
+      functionName: 'send-invoices',
+      requestedInvoiceCount: invoiceIds.length,
+      errorName: error.name,
+      errorMessage: error.message,
+      underlyingCause,
+      responseStatus,
+      responseStatusText,
+      originalError: error,
+      context: error.context,
+    })
+
+    throw new Error(detail, { cause: error })
   }
 
   if (!data?.results || !Array.isArray(data.results)) {
+    console.error('[InvoiceDeliveryRepository] Invalid send-invoices response', {
+      functionName: 'send-invoices',
+      requestedInvoiceCount: invoiceIds.length,
+      responseType: typeof data,
+    })
     throw new Error('SMS backend returned an invalid response.')
   }
 
