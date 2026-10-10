@@ -8,6 +8,9 @@ import {
 import PageSkeleton from '../components/loading/PageSkeleton'
 import BillingReadingsPanel from '../features/billing/components/BillingReadingsPanel'
 import BillingServicesPanel from '../features/billing/components/BillingServicesPanel'
+import InvoiceSendPanel from '../features/billing/components/InvoiceSendPanel'
+import { fetchInvoiceSmsDeliveries } from '../features/billing/data/invoiceDeliveryRepository'
+import type { InvoiceSmsDelivery } from '../features/billing/data/invoiceDeliveryRepository'
 
 import type { BillingReadingsWorkspace } from '../features/billing/data/billingReadingsRepository'
 
@@ -151,6 +154,8 @@ export default function BillingPage() {
   const [showFinalizeConfirm, setShowFinalizeConfirm] = useState(false)
   const [finalizedInvoices, setFinalizedInvoices] = useState<FinalizedInvoiceRow[]>([])
   const [selectedInvoice, setSelectedInvoice] = useState<FinalizedInvoiceDetail | null>(null)
+  const [invoiceSmsDeliveries, setInvoiceSmsDeliveries] = useState<InvoiceSmsDelivery[]>([])
+  const [sendInitialInvoiceId, setSendInitialInvoiceId] = useState<string | null>(null)
   const [loadingInvoices, setLoadingInvoices] = useState(false)
   const [invoiceSearch, setInvoiceSearch] = useState('')
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState('all')
@@ -206,6 +211,7 @@ export default function BillingPage() {
     (sum, invoice) => sum + invoice.total_invoiced,
     0,
   )
+  const smsAcceptedCount = invoiceSmsDeliveries.filter(delivery => delivery.status === 'accepted').length
   const visibleInvoices = finalizedInvoices.filter(invoice => {
     const query = invoiceSearch.trim().toLowerCase()
     const matchesQuery = !query || [
@@ -261,6 +267,8 @@ export default function BillingPage() {
         setSelectedDraft(null)
         setSelectedInvoice(null)
         setFinalizedInvoices([])
+        setInvoiceSmsDeliveries([])
+        setSendInitialInvoiceId(null)
         setInvoiceSearch('')
         setInvoiceStatusFilter('all')
 
@@ -327,6 +335,26 @@ export default function BillingPage() {
 
     void loadInvoices()
   }, [step, cycle, dashboard.invoiceCount, dashboard.drafts])
+
+  const refreshInvoiceSmsStatuses = useCallback(async () => {
+    const ids = finalizedInvoices.map(invoice => invoice.id)
+    if (ids.length === 0) {
+      setInvoiceSmsDeliveries([])
+      return
+    }
+
+    try {
+      setInvoiceSmsDeliveries(await fetchInvoiceSmsDeliveries(ids))
+    } catch (statusError) {
+      console.warn('[BillingPage] SMS delivery statuses not available', statusError)
+    }
+  }, [finalizedInvoices])
+
+  useEffect(() => {
+    if ((step === 'invoices' || step === 'send') && finalizedInvoices.length > 0) {
+      void refreshInvoiceSmsStatuses()
+    }
+  }, [step, finalizedInvoices, refreshInvoiceSmsStatuses])
 
   const handleReadingsCompletion = useCallback((
     _complete: boolean,
@@ -613,16 +641,16 @@ export default function BillingPage() {
   function navigate(target: BillingStep) {
     if (!cycle) return
 
-    if (target === 'send') return
+    if (target === 'send' && !invoicesExist) return
 
     if (target === 'invoices' && !invoicesExist) return
 
-    if (invoicesExist && target !== 'invoices') {
+    if (invoicesExist && target !== 'invoices' && target !== 'send') {
       setError('Invoices are finalized for this cycle. Billing inputs and drafts are now locked.')
       return
     }
 
-    if (draftsExist && target !== 'review' && target !== 'invoices') {
+    if (!invoicesExist && draftsExist && target !== 'review' && target !== 'invoices') {
       setError('Drafts already exist for this cycle. Finish reviewing them before changing the billing inputs.')
       return
     }
@@ -748,10 +776,10 @@ export default function BillingPage() {
                     const completed = item.id === 'review'
                       ? allDraftsApproved || invoicesExist
                       : item.id === 'invoices'
-                        ? false
+                        ? step === 'send'
                         : item.number < currentStepNumber
                     const locked =
-                      item.id === 'send' ||
+                      (item.id === 'send' && !invoicesExist) ||
                       (item.id === 'invoices' && !invoicesExist) ||
                       (invoicesExist && item.number < 5) ||
                       (!invoicesExist && draftsExist && item.number < 4)
@@ -760,7 +788,7 @@ export default function BillingPage() {
                       <button
                         key={item.id}
                         type="button"
-                        disabled={locked || (item.number > currentStepNumber && item.id !== 'review' && item.id !== 'invoices')}
+                        disabled={locked || (item.number > currentStepNumber && item.id !== 'review' && item.id !== 'invoices' && item.id !== 'send')}
                         onClick={() => navigate(item.id)}
                         className={`flex items-center gap-2 rounded-xl border p-3 text-left transition ${
                           active
@@ -1132,8 +1160,9 @@ export default function BillingPage() {
                   </div>
                   <button
                     type="button"
-                    disabled
-                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1e6a59] px-5 py-3 text-sm font-bold text-white shadow-[0_10px_28px_rgba(30,106,89,0.25)] opacity-55"
+                    disabled={loadingInvoices || finalizedInvoices.length === 0}
+                    onClick={() => { setSendInitialInvoiceId(null); navigate('send') }}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1e6a59] px-5 py-3 text-sm font-bold text-white shadow-[0_10px_28px_rgba(30,106,89,0.25)] disabled:opacity-55"
                   >
                     Next: Send invoices
                     <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
@@ -1150,7 +1179,7 @@ export default function BillingPage() {
                 <div className="flex flex-col gap-3 rounded-2xl bg-[#e7f7ee] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-center gap-3 text-sm font-semibold text-[#005142]">
                     <span className="material-symbols-outlined text-[20px]">verified_user</span>
-                    <span>{finalizedInvoices.length || dashboard.invoiceCount} finalized · 0 sent · {finalizedInvoices.length || dashboard.invoiceCount} awaiting delivery</span>
+                    <span>{finalizedInvoices.length || dashboard.invoiceCount} finalized · {smsAcceptedCount} accepted by SMS provider · {Math.max((finalizedInvoices.length || dashboard.invoiceCount) - smsAcceptedCount, 0)} not accepted</span>
                   </div>
                   <span className="text-xs text-[#424845]">Invoices Finalized · Ready for Delivery</span>
                 </div>
@@ -1205,7 +1234,14 @@ export default function BillingPage() {
                             <td className="px-4 py-4 text-right font-mono font-semibold text-[#8b6508]">{money(invoice.previous_balance)}</td>
                             <td className="px-4 py-4 text-right font-mono font-bold text-[#111e19]">{money(invoice.total_invoiced)}</td>
                             <td className="px-4 py-4 text-center"><span className="rounded-full bg-[#a8f1db]/45 px-2.5 py-1 text-xs font-semibold capitalize text-[#005142]">{invoice.status.replaceAll('_', ' ')}</span></td>
-                            <td className="px-4 py-4 text-center"><span className="rounded-full bg-[#e2f2e8] px-2.5 py-1 text-xs font-semibold text-[#424845]">Not sent</span></td>
+                            <td className="px-4 py-4 text-center"><span className="rounded-full bg-[#e2f2e8] px-2.5 py-1 text-xs font-semibold text-[#424845]">{(() => {
+                              const delivery = invoiceSmsDeliveries.find(item => item.invoice_id === invoice.id)
+                              if (!delivery) return 'Not sent'
+                              if (delivery.status === 'accepted') return delivery.environment === 'sandbox' ? 'Sandbox accepted' : 'Provider accepted'
+                              if (delivery.status === 'sending') return 'In progress / review'
+                              if (delivery.status === 'unknown') return 'Uncertain / review'
+                              return 'Failed'
+                            })()}</span></td>
                             <td className="px-5 py-4 text-right">
                               <button type="button" onClick={() => void openFinalizedInvoice(invoice)} disabled={loadingInvoices} className="inline-flex items-center gap-1 rounded-lg bg-[#e2f2e8] px-3 py-2 text-xs font-semibold text-[#1e6a59] hover:bg-[#d6e6dd] disabled:opacity-50">View invoice<span className="material-symbols-outlined text-[14px]">arrow_forward</span></button>
                             </td>
@@ -1227,9 +1263,20 @@ export default function BillingPage() {
                 </div>
 
                 <div className="rounded-xl border border-[#1e6a59]/15 bg-[#a8f1db]/25 p-4 text-sm text-[#005142]">
-                  Step 6 will handle tenant delivery separately. Finalized invoice values are read-only and will not be changed by sending.
+                  SMS sending is handled in Step 6. Delivery status is tracked separately from invoice payment status; submitting an SMS does not alter financial amounts.
                 </div>
               </section>
+            )}
+
+            {step === 'send' && cycle && property && (
+              <InvoiceSendPanel
+                cycleId={cycle.id}
+                propertyName={property.name}
+                invoices={finalizedInvoices}
+                initialInvoiceId={sendInitialInvoiceId}
+                onBack={() => navigate('invoices')}
+                onDeliveryChange={() => void refreshInvoiceSmsStatuses()}
+              />
             )}
           </>
         )}
@@ -1320,7 +1367,7 @@ export default function BillingPage() {
           <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <button type="button" onClick={() => setSelectedInvoice(null)} className="inline-flex w-fit items-center gap-2 text-sm font-semibold text-[#1e6a59] hover:underline"><span className="material-symbols-outlined text-[18px]">arrow_back</span>Back to finalized invoices</button>
-              <button type="button" disabled className="inline-flex items-center gap-2 rounded-lg bg-[#1e6a59] px-5 py-2.5 text-sm font-semibold text-white opacity-55"><span className="material-symbols-outlined text-[18px]">send</span>Send this invoice — Step 6</button>
+              <button type="button" onClick={() => { setSendInitialInvoiceId(selectedInvoice.invoice.id); setSelectedInvoice(null); setStep('send') }} className="inline-flex items-center gap-2 rounded-lg bg-[#1e6a59] px-5 py-2.5 text-sm font-semibold text-white"><span className="material-symbols-outlined text-[18px]">send</span>Send this invoice — Step 6</button>
             </div>
 
             <div className="mb-4 flex items-start gap-3 rounded-xl bg-[#e7f7ee] p-4">
