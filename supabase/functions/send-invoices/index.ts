@@ -69,6 +69,11 @@ export default {
       );
     }
 
+    const actorId = ctx.userClaims?.id;
+    if (!actorId) {
+      return Response.json({ error: "Authenticated user required" }, { status: 401 });
+    }
+
     const invoiceIds = Array.from(new Set(ids as string[]));
     const username = Deno.env.get("AFRICASTALKING_USERNAME");
     const apiKey = Deno.env.get("AFRICASTALKING_API_KEY");
@@ -114,9 +119,13 @@ export default {
     for (const invoiceId of invoiceIds) {
       // The RPC checks permissions, finalization, phone presence and duplicates.
       // It atomically claims an invoice before the external network call.
-      const { data, error } = await ctx.supabase.rpc(
+      const { data, error } = await ctx.supabaseAdmin.rpc(
         "claim_invoice_sms_delivery",
-        { p_invoice_id: invoiceId, p_environment: environment },
+        {
+          p_invoice_id: invoiceId,
+          p_environment: environment,
+          p_actor_id: actorId,
+        },
       );
 
       if (error) {
