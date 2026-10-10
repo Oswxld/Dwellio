@@ -8,6 +8,7 @@ import {
   type TenantMoveOutRequest,
   type TenantPortalSnapshot,
 } from './data/tenantPortalRepository'
+import { TenantInvoiceDetails, TenantInvoiceList } from './TenantInvoicesPage'
 import '../../styles/tenant-portal.css'
 
 function Icon({ name, className = '' }: { name: string; className?: string }) {
@@ -325,15 +326,6 @@ function TenantLease({ snapshot }: { snapshot: TenantPortalSnapshot }) {
   </>
 }
 
-function TenantInvoicesNext() {
-  return <>
-    <ScreenTitle title="Invoices & Payments" subtitle="Your rent, utilities and M-Pesa payment history" />
-    <Card><div className="tenant-card-heading"><Icon name="receipt_long" /><h2>Billing is next</h2></div>
-      <p className="tenant-muted">We're connecting finalized invoices, line-item charges and verified M-Pesa STK Push payments next. No payments can be initiated from this page yet.</p>
-      <Link className="tenant-outline-button tenant-link-button" to="/tenant">Back to Home <Icon name="arrow_forward" /></Link>
-    </Card>
-  </>
-}
 
 export default function TenantPortal() {
   const [snapshot, setSnapshot] = useState<TenantPortalSnapshot | null>(null)
@@ -380,7 +372,8 @@ export default function TenantPortal() {
         <Route index element={<TenantHome snapshot={snapshot} />} />
         <Route path="lease" element={<TenantLease snapshot={snapshot} />} />
         <Route path="profile" element={<TenantProfile snapshot={snapshot} />} />
-        <Route path="invoices" element={<TenantInvoicesNext />} />
+        <Route path="invoices" element={<TenantInvoiceList outstandingBalance={snapshot.outstanding_balance} />} />
+        <Route path="invoices/:invoiceId" element={<TenantInvoiceDetails />} />
         <Route path="*" element={<Navigate to="/tenant" replace />} />
       </Routes>
     </main>
