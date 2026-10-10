@@ -170,6 +170,17 @@ export default {
         response_description: String(result.ResponseDescription ?? "").slice(0, 500),
       });
 
+      // A very fast callback can arrive before the initiating request saves
+      // the CheckoutRequestID. Preserve that evidence for reconciliation.
+      const { data: updated } = await ctx.supabaseAdmin
+        .from("mpesa_stk_requests")
+        .select("callback_payload")
+        .eq("id", attemptId)
+        .maybeSingle();
+      if (updated?.callback_payload) {
+        await updateAttempt({ status: "callback_received" });
+      }
+
       // Provider accepted the REQUEST only; funds are NOT confirmed here.
       return Response.json({
         status: "awaiting_callback",
