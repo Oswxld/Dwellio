@@ -14,7 +14,7 @@ create table if not exists public.move_out_requests (
   status text not null default 'pending'
     check (status in ('pending', 'accepted', 'declined')),
   submitted_at timestamptz not null default now(),
-  reviewed_by uuid references auth.users(id) on delete set null,
+  reviewed_by uuid references auth.users(id),
   reviewed_at timestamptz,
   decision_reason text,
   created_at timestamptz not null default now(),
@@ -423,6 +423,12 @@ begin
   end if;
   if v_lease.status <> 'active' then
     raise exception 'Only an active lease can be put on notice';
+  end if;
+  if exists (
+    select 1 from public.move_out_requests r
+    where r.lease_id = p_lease_id and r.status = 'pending'
+  ) then
+    raise exception 'Review the pending tenant move-out request before issuing separate notice';
   end if;
 
   update public.leases
