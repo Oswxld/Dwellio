@@ -60,8 +60,16 @@ export default function InvoiceSendPanel({
   const invoiceIds = useMemo(() => invoices.map(invoice => invoice.id), [invoices])
 
   const refresh = useCallback(async () => {
-    const rows = await fetchInvoiceSmsDeliveries(invoiceIds)
-    setDeliveries(rows)
+    try {
+      const rows = await fetchInvoiceSmsDeliveries(invoiceIds)
+      setDeliveries(rows)
+    } catch (caught) {
+      console.error('[InvoiceSendPanel] Failed to refresh invoice SMS statuses', {
+        invoiceCount: invoiceIds.length,
+        error: caught,
+      })
+      throw caught
+    }
   }, [invoiceIds])
 
   useEffect(() => {
@@ -76,6 +84,10 @@ export default function InvoiceSendPanel({
         }
       })
       .catch(caught => {
+        console.error('[InvoiceSendPanel] Failed to load invoice SMS statuses', {
+          invoiceCount: invoiceIds.length,
+          error: caught,
+        })
         if (active) {
           setError(caught instanceof Error ? caught.message : 'Could not load SMS statuses.')
         }
@@ -165,6 +177,12 @@ export default function InvoiceSendPanel({
         `${accepted} accepted by provider, ${failed} failed, ${uncertain} uncertain, ${skipped} skipped. Provider acceptance does not prove handset delivery.`
       )
     } catch (caught) {
+      console.error('[InvoiceSendPanel] Failed to submit invoice SMS batch', {
+        cycleId,
+        totalSelected: targets.length,
+        processedBeforeFailure: completed,
+        error: caught,
+      })
       setError(
         `${completed} of ${targets.length} processed. ` +
         (caught instanceof Error ? caught.message : 'SMS submission stopped.') +
@@ -176,8 +194,12 @@ export default function InvoiceSendPanel({
       try {
         await refresh()
         onDeliveryChange()
-      } catch {
-        // Keep the original error visible; statuses can be refreshed manually.
+      } catch (refreshError) {
+        console.error('[InvoiceSendPanel] Failed to refresh statuses after SMS sending', {
+          cycleId,
+          error: refreshError,
+        })
+        // Keep the original send error visible; statuses can be refreshed manually.
       }
     }
   }
