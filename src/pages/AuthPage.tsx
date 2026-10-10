@@ -64,7 +64,7 @@ export default function AuthPage({ portal = 'landlord' }: { portal?: Portal }) {
         if (signUpError) throw signUpError
         if (!data.session) {
           if (isTenant) setTenantStep('confirmation')
-          setMessage('Account created. Check your email to confirm your address, then sign in.')
+          setMessage('If your account was created, check your inbox for the confirmation link, then sign in.')
         }
       } else {
         const { error: signInError } = await supabase.auth.signInWithPassword({
