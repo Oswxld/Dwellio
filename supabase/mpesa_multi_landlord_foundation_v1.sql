@@ -67,6 +67,8 @@ alter table public.mpesa_property_settings enable row level security;
 alter table public.mpesa_tenant_accounts enable row level security;
 alter table public.mpesa_stk_requests enable row level security;
 
+grant all on public.mpesa_property_settings, public.mpesa_tenant_accounts, public.mpesa_stk_requests to service_role;
+
 -- No table-level grants/policies to browser roles; all browser reads/writes
 -- are explicitly mediated through narrow, validated SECURITY DEFINER RPCs.
 revoke all on public.mpesa_property_settings from anon, authenticated;
@@ -160,6 +162,22 @@ begin
  where property_id = p_property_id and organization_id = v_org;
  if not found or v_config.setup_status <> 'sandbox_ready' or v_config.credential_secret_id is null
  then raise exception 'M-Pesa setup is not yet ready for this property'; end if;
+
+ -- Existing auto_allocate_payment() allocates across all invoices for a
+ -- tenant, not just this property's PayBill. Fail closed on cross-property
+ -- arrears until property-scoped payment allocation is implemented.
+ if exists (
+   select 1 from public.invoices i
+   join public.bill_drafts bd on bd.id = i.bill_draft_id
+   join public.units u on u.id = bd.unit_id
+   join public.floors f on f.id = u.floor_id
+   join public.buildings b on b.id = f.building_id
+   where i.tenant_id = v_tenant
+     and i.status <> 'void' and i.outstanding_amount > 0
+     and b.property_id <> p_property_id
+ ) then
+   raise exception 'Payments across multiple properties require separate allocation setup';
+ end if;
 
  v_due := public.get_tenant_outstanding_balance(v_tenant);
  if v_due is null or v_due < p_amount then raise exception 'Amount exceeds unpaid tenant balance'; end if;
