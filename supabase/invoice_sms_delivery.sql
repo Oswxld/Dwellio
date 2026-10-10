@@ -64,7 +64,7 @@ begin
     i.id,
     i.invoice_number,
     i.phone,
-    i.total_receivable,
+    bd.total_payable AS total_receivable,
     i.due_date,
     i.status as invoice_status,
     bd.billing_cycle_id,
