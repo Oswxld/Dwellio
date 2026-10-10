@@ -1,45 +1,8 @@
--- Dwellio | Invoice SMS delivery foundation
--- Run this in the Supabase SQL Editor BEFORE deploying the send-invoices Edge Function.
--- It does not generate invoices, modify balances or send messages.
+-- Fix Dwellio invoice SMS claim error: "column i.total_receivable does not exist".
+-- Safe to run against the existing deployed database.
+-- Replaces only public.claim_invoice_sms_delivery; does not modify invoice amounts.
+-- Invoice SMS total comes from the approved bill draft's total_payable.
 
-create table if not exists public.invoice_sms_deliveries (
-  invoice_id uuid primary key references public.invoices(id) on delete cascade,
-  billing_cycle_id uuid not null references public.billing_cycles(id) on delete cascade,
-  phone text not null,
-  status text not null check (status in ('sending', 'accepted', 'failed', 'unknown')),
-  environment text not null check (environment in ('sandbox', 'production')),
-  provider_message_id text,
-  provider_status text,
-  cost text,
-  error_message text,
-  attempt_count integer not null default 1 check (attempt_count > 0),
-  attempted_at timestamptz not null default now(),
-  accepted_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create index if not exists invoice_sms_deliveries_cycle_idx
-  on public.invoice_sms_deliveries (billing_cycle_id, status);
-
-alter table public.invoice_sms_deliveries enable row level security;
-
-drop policy if exists invoice_sms_deliveries_staff_select on public.invoice_sms_deliveries;
-create policy invoice_sms_deliveries_staff_select
-  on public.invoice_sms_deliveries
-  for select to authenticated
-  using (public.can_manage_property(
-    (select bc.property_id
-     from public.billing_cycles bc
-     where bc.id = billing_cycle_id)
-  ));
-
-revoke all on table public.invoice_sms_deliveries from public, anon, authenticated;
-grant select on table public.invoice_sms_deliveries to authenticated;
-grant select, insert, update on table public.invoice_sms_deliveries to service_role;
-
--- Claims exactly one invoice atomically. Only explicitly failed claims may be retried.
--- In-progress, accepted and indeterminate ('unknown') claims cannot be auto-resent.
 create or replace function public.claim_invoice_sms_delivery(
   p_invoice_id uuid,
   p_environment text,
