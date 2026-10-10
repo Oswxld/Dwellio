@@ -740,7 +740,7 @@ export async function fetchFinalizedInvoiceDetail(
 }
 
 export async function finalizeBillingCycle(billingCycleId: string) {
-  const { data, error } = await supabase.rpc('finalize_billing_cycle', {
+  const { data, error } = await supabase.rpc('finalize_billing_cycle_with_phones', {
     p_billing_cycle_id: billingCycleId,
   })
 
