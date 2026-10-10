@@ -171,7 +171,7 @@ export default function DwellioShell({
             onClick={() => {
               setNotice('')
               navigate('/settings/payments')
-            }
+            }}
           >
             <span className="nav-icon">⚙</span>
             <span>Payment Settings</span>
