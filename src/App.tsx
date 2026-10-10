@@ -1,6 +1,7 @@
 import {
   lazy,
   useEffect,
+  useRef,
   useState,
 } from 'react'
 
@@ -57,150 +58,136 @@ export default function App() {
   const [hasTenant, setHasTenant] =
     useState(false)
 
+  const [tenantLinkStatus, setTenantLinkStatus] =
+    useState<string | null>(null)
+
+  const [tenantLinkError, setTenantLinkError] =
+    useState('')
+
+  const contextRequestId = useRef(0)
+
   const [setupCompleted, setSetupCompleted] =
     useState(false)
 
   const [organizationId, setOrganizationId] =
     useState<string | null>(null)
 
-  async function loadContext(
-    currentUser: User,
-  ) {
-    const [membershipResult, tenantResult] = await Promise.all([
-      supabase
-      .from('organization_members')
-      .select(
-        `
-        organization_id,
-        organizations!inner(
-          id,
-          name,
-          setup_completed
-        )
-        `,
+  async function loadContext(currentUser: User) {
+    const requestId = ++contextRequestId.current
+    setLoading(true)
+
+    try {
+      // Auth email ownership is verified in the SECURITY DEFINER RPC.
+      // Do not search `tenants.email` directly from the browser.
+      const [membershipResult, claimResult] = await Promise.all([
+        supabase
+          .from('organization_members')
+          .select(`
+            organization_id,
+            organizations!inner(
+              id,
+              name,
+              setup_completed
+            )
+          `)
+          .eq('user_id', currentUser.id)
+          .eq('status', 'active')
+          .limit(1)
+          .maybeSingle(),
+        supabase.rpc('claim_tenant_account'),
+      ])
+
+      if (requestId !== contextRequestId.current) return
+
+      if (membershipResult.error) {
+        console.error('[Auth] Organization membership lookup failed:', membershipResult.error)
+      }
+
+      const membership = membershipResult.data
+      const organization = Array.isArray(membership?.organizations)
+        ? membership.organizations[0]
+        : membership?.organizations
+
+      setHasOrganization(Boolean(membership))
+      setOrganizationId(membership?.organization_id ?? null)
+      setSetupCompleted(organization?.setup_completed === true)
+
+      if (claimResult.error) {
+        console.error('[Auth] Tenant email claim failed:', claimResult.error)
+        setHasTenant(false)
+        setTenantLinkStatus('error')
+        setTenantLinkError(claimResult.error.message)
+        return
+      }
+
+      const claim = claimResult.data as {
+        status?: string
+        linked_user_id?: string | null
+      } | null
+
+      setHasTenant(claim?.status === 'linked' && claim.linked_user_id === currentUser.id)
+      setTenantLinkStatus(claim?.status ?? 'error')
+      setTenantLinkError(claim ? '' : 'The tenant account check returned no result.')
+    } catch (caught) {
+      if (requestId !== contextRequestId.current) return
+      console.error('[Auth] Could not load account context:', caught)
+      setHasTenant(false)
+      setTenantLinkStatus('error')
+      setTenantLinkError(
+        caught instanceof Error ? caught.message : 'Could not check your account.',
       )
-      .eq(
-        'user_id',
-        currentUser.id,
-      )
-      .eq(
-        'status',
-        'active',
-      )
-      .limit(1)
-      .maybeSingle(),
-      supabase
-        .from('tenants')
-        .select('id')
-        .eq('user_id', currentUser.id)
-        .is('deleted_at', null)
-        .limit(1)
-        .maybeSingle(),
-    ])
-
-    const data = membershipResult.data
-    setHasTenant(Boolean(tenantResult.data))
-
-    const organization =
-      Array.isArray(
-        data?.organizations,
-      )
-        ? data.organizations[0]
-        : data?.organizations
-
-    setHasOrganization(
-      Boolean(data),
-    )
-
-    setOrganizationId(
-      data?.organization_id
-      ?? null,
-    )
-
-    setSetupCompleted(
-      organization
-        ?.setup_completed
-      === true,
-    )
+    } finally {
+      if (requestId === contextRequestId.current) setLoading(false)
+    }
   }
 
   useEffect(() => {
-    supabase.auth
-      .getSession()
-      .then(({ data }) => {
-        setSession(
-          data.session,
-        )
+    let mounted = true
+    const pendingTimers: ReturnType<typeof setTimeout>[] = []
 
-        setUser(
-          data.session?.user
-          ?? null,
-        )
+    function applySession(nextSession: Session | null) {
+      if (!mounted) return
+      setSession(nextSession)
+      setUser(nextSession?.user ?? null)
 
-        if (
-          data.session?.user
-        ) {
-          loadContext(
-            data.session.user,
-          )
-            .finally(
-              () =>
-                setLoading(false),
-            )
-        } else {
-          setLoading(false)
-        }
+      if (nextSession?.user) {
+        setLoading(true)
+        // Supabase advises deferring other auth-dependent requests from the
+        // auth-state callback to avoid holding its internal auth lock.
+        const timer = setTimeout(() => {
+          if (mounted) void loadContext(nextSession.user)
+        }, 0)
+        pendingTimers.push(timer)
+      } else {
+        contextRequestId.current += 1
+        setLoading(false)
+        setHasOrganization(false)
+        setHasTenant(false)
+        setTenantLinkStatus(null)
+        setTenantLinkError('')
+        setSetupCompleted(false)
+        setOrganizationId(null)
+      }
+    }
+
+    void supabase.auth.getSession()
+      .then(({ data }) => applySession(data.session))
+      .catch((error: unknown) => {
+        if (!mounted) return
+        console.error('[Auth] Could not restore session:', error)
+        setLoading(false)
       })
 
-    const {
-      data: listener,
-    } =
-      supabase.auth
-        .onAuthStateChange(
-          (
-            _event,
-            nextSession,
-          ) => {
-            setSession(
-              nextSession,
-            )
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (_event, nextSession) => applySession(nextSession),
+    )
 
-            setUser(
-              nextSession?.user
-              ?? null,
-            )
-
-            if (
-              nextSession?.user
-            ) {
-              // Do not show landlord onboarding while the tenant lookup is pending.
-              setLoading(true)
-              void loadContext(
-                nextSession.user,
-              ).finally(() => setLoading(false))
-            } else {
-              setLoading(false)
-              setHasOrganization(
-                false,
-              )
-
-              setHasTenant(false)
-
-              setSetupCompleted(
-                false,
-              )
-
-              setOrganizationId(
-                null,
-              )
-            }
-          },
-        )
-
-    return () =>
-      listener
-        .subscription
-        .unsubscribe()
+    return () => {
+      mounted = false
+      pendingTimers.forEach(clearTimeout)
+      contextRequestId.current += 1
+      listener.subscription.unsubscribe()
+    }
   }, [])
 
   if (loading) {
@@ -226,11 +213,21 @@ export default function App() {
         <section className="auth-card">
           <div className="brand">dwellio<span>.</span></div>
           <p className="eyebrow">TENANT PORTAL</p>
-          <h1>Tenant access not linked.</h1>
+          <h1>{tenantLinkStatus === 'email_unverified'
+            ? 'Please confirm your email.'
+            : tenantLinkStatus === 'error'
+              ? 'Unable to verify tenant access.'
+              : tenantLinkStatus === 'already_linked'
+                ? 'Tenant record already linked.'
+                : 'Tenant email not registered.'}</h1>
           <p className="muted">
-            You're signed in, but this account isn't connected to a registered
-            tenant profile. Ask your property manager to link your account
-            using your verified email address.
+            {tenantLinkStatus === 'email_unverified'
+              ? 'Check your inbox and confirm your email using the Supabase verification link, then sign in again.'
+              : tenantLinkStatus === 'error'
+                ? `Dwellio could not complete the tenant account check. ${tenantLinkError || 'Please try again or contact support.'}`
+                : tenantLinkStatus === 'already_linked'
+                  ? 'A matching tenancy is already linked to another account. Ask your property manager to review the record.'
+                  : 'No active tenant record matches your verified account email. Ask your property manager to register that exact email address.'}
           </p>
           <button className="primary full" type="button"
             onClick={() => void supabase.auth.signOut()}>
