@@ -362,3 +362,19 @@
   }
 }
 
+
+/* Shared login: landlord / tenant portal selector */
+.auth-tagline{margin:6px 0 20px;font-size:12px}
+.auth-portal-switch{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:5px;background:#edf3f0;border:1px solid #dce7e0;border-radius:15px}
+.auth-portal-option{display:flex;gap:7px;align-items:center;justify-content:center;min-height:52px;padding:9px 8px;text-decoration:none;color:#66766e;font-size:12px;font-weight:750;border:1px solid transparent;border-radius:11px;transition:background .15s,box-shadow .15s,color .15s}
+.auth-portal-option .material-symbols-outlined{font-size:19px}
+.auth-portal-option:hover{color:#1d6958;background:rgba(255,255,255,.6)}
+.auth-portal-option:focus-visible{outline:3px solid rgba(29,105,88,.24);outline-offset:2px}
+.auth-portal-option-active{background:white;color:#1d6958;border-color:#d7e4dd;box-shadow:0 3px 12px rgba(16,33,28,.08)}
+.auth-portal-option-active:hover{background:white}
+.auth-portal-label{margin-top:25px}
+.auth-portal-help{margin:20px 0 0;color:#718078;font-size:12px;line-height:1.65;text-align:center}
+.auth-back-link{display:block;margin-top:17px;text-align:center;color:#1d6958;font-size:13px;font-weight:700;text-decoration:none}
+.auth-back-link:hover{text-decoration:underline}
+.auth-card>.primary.full{margin-top:24px}
+@media(max-width:420px){.auth-portal-option{font-size:11px}.auth-portal-option .material-symbols-outlined{font-size:17px}}
