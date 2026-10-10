@@ -7,6 +7,17 @@ Three mobile-first React views based on the supplied Google Stitch HTML:
 
 The Invoices tab is a clearly labeled next-step placeholder. No fake invoices, payments, M-Pesa prompts or support tickets are created.
 
+## Login entry points
+
+The login page provides two selectable experiences backed by **one Supabase Auth** project:
+
+- **Landlord / Manager:** `/login` (or the site root while signed out). Existing sign-in and organization signup remain available.
+- **Tenant:** `/tenant/login`. Tenant sign-in uses the same email/password authentication, then enters `/tenant` only when `public.tenants.user_id = auth.uid()`. Tenant registration is **not** offered on this screen in V1.
+- A tenant login without a linked tenant record shows an actionable **Tenant access not linked** message rather than starting landlord onboarding.
+- A dual-role account can open `/tenant` for the tenant experience and `/` for the landlord dashboard; the selected portal never grants DB permissions by itself.
+
+**First-time tenant access:** A property manager must ensure a verified Supabase auth account exists and is securely associated with the `tenants.user_id` field. This UI change does not implement account claiming, send invitations, create tenant passwords, or change Supabase RLS. Never rely on email text alone to grant access.
+
 ## Set up the database first
 
 1. The earlier `supabase/tenant_move_out_requests_v1.sql` migration must be applied to your actual Supabase project. If already applied, **do not blindly rerun it**. That migration includes tenant SELECT RLS and the move-out request RPC.
