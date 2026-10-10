@@ -20,6 +20,7 @@ import { supabase } from './lib/supabase'
 
 import DwellioShell
   from './layouts/DwellioShell'
+import TenantPortal from './features/tenant/TenantPortal'
 
 import AuthPage from './pages/AuthPage'
 import OnboardingPage from './pages/OnboardingPage'
@@ -49,6 +50,9 @@ export default function App() {
   const [hasOrganization, setHasOrganization] =
     useState(false)
 
+  const [hasTenant, setHasTenant] =
+    useState(false)
+
   const [setupCompleted, setSetupCompleted] =
     useState(false)
 
@@ -58,7 +62,8 @@ export default function App() {
   async function loadContext(
     currentUser: User,
   ) {
-    const { data } = await supabase
+    const [membershipResult, tenantResult] = await Promise.all([
+      supabase
       .from('organization_members')
       .select(
         `
@@ -79,7 +84,18 @@ export default function App() {
         'active',
       )
       .limit(1)
-      .maybeSingle()
+      .maybeSingle(),
+      supabase
+        .from('tenants')
+        .select('id')
+        .eq('user_id', currentUser.id)
+        .is('deleted_at', null)
+        .limit(1)
+        .maybeSingle(),
+    ])
+
+    const data = membershipResult.data
+    setHasTenant(Boolean(tenantResult.data))
 
     const organization =
       Array.isArray(
@@ -161,6 +177,8 @@ export default function App() {
                 false,
               )
 
+              setHasTenant(false)
+
               setSetupCompleted(
                 false,
               )
@@ -193,6 +211,17 @@ export default function App() {
     return <AuthPage />
   }
 
+  // Tenant accounts do not need a landlord organization.
+  // Keep landlord routing unchanged for users who also manage an organization.
+  if (hasTenant && (!hasOrganization || !setupCompleted || !organizationId)) {
+    return (
+      <Routes>
+        <Route path="/tenant/*" element={<TenantPortal />} />
+        <Route path="*" element={<Navigate to="/tenant" replace />} />
+      </Routes>
+    )
+  }
+
   if (
     !hasOrganization ||
     !setupCompleted ||
@@ -211,6 +240,9 @@ export default function App() {
 
   return (
     <Routes>
+      {hasTenant && (
+        <Route path="/tenant/*" element={<TenantPortal />} />
+      )}
       <Route
         path="/tenants/new"
         element={
