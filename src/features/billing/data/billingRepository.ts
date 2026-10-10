@@ -713,6 +713,7 @@ export async function fetchFinalizedInvoices(
       id: String(row.id ?? ''),
       bill_draft_id: billDraftId,
       invoice_number: String(row.invoice_number ?? 'Invoice'),
+      phone: typeof row.phone === 'string' && row.phone.trim() ? row.phone.trim() : null,
       status: String(row.status ?? 'issued'),
       current_charges: draft.current_charges,
       previous_balance: draft.previous_balance,
