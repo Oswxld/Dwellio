@@ -378,3 +378,12 @@
 .auth-back-link:hover{text-decoration:underline}
 .auth-card>.primary.full{margin-top:24px}
 @media(max-width:420px){.auth-portal-option{font-size:11px}.auth-portal-option .material-symbols-outlined{font-size:17px}}
+
+/* Tenant verified-email signup and login flow */
+.tenant-auth-selected-email{background:#edf3f0;border:1px solid #dce7e0;border-radius:11px;padding:11px 13px;display:flex;gap:14px;align-items:center;justify-content:space-between;min-width:0}
+.tenant-auth-selected-email>div{display:grid;gap:3px;min-width:0;overflow-wrap:anywhere}
+.tenant-auth-selected-email span{font-size:11px;font-weight:700;color:#718078}
+.tenant-auth-selected-email strong{font-size:13px;color:#18221f}
+.tenant-auth-selected-email button{border:0;color:#1d6958;background:transparent;font-size:12px;font-weight:750;padding:9px 0 9px 9px;flex:none}
+.tenant-auth-selected-email button:hover{text-decoration:underline}
+.auth-confirm-action{margin-top:24px}
