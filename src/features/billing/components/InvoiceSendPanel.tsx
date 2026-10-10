@@ -152,6 +152,7 @@ export default function InvoiceSendPanel({
     let uncertain = 0
     let skipped = 0
     let completed = 0
+    const failureDetails: string[] = []
 
     try {
       // Small, sequential batches. The Edge Function sends personalized messages.
@@ -161,10 +162,36 @@ export default function InvoiceSendPanel({
         const response = await sendInvoiceSmsBatch(batch)
 
         for (const item of response.results) {
-          if (item.status === 'accepted') accepted += 1
-          else if (item.status === 'failed') failed += 1
-          else if (item.status === 'unknown') uncertain += 1
-          else skipped += 1
+          if (item.status === 'accepted') {
+            accepted += 1
+            continue
+          }
+
+          const invoice = invoices.find(row => row.id === item.invoice_id)
+          const invoiceLabel = invoice?.invoice_number ?? 'Invoice'
+          const reason = item.reason ?? 'No failure reason returned'
+
+          if (item.status === 'failed') {
+            failed += 1
+            failureDetails.push(`${invoiceLabel}: ${reason}`)
+            console.error('[InvoiceSendPanel] Invoice SMS rejected before or during sending', {
+              invoiceNumber: invoiceLabel,
+              reason,
+            })
+          } else if (item.status === 'unknown') {
+            uncertain += 1
+            console.warn('[InvoiceSendPanel] Invoice SMS outcome uncertain', {
+              invoiceNumber: invoiceLabel,
+              reason,
+            })
+          } else {
+            skipped += 1
+            failureDetails.push(`${invoiceLabel}: ${reason}`)
+            console.warn('[InvoiceSendPanel] Invoice SMS skipped', {
+              invoiceNumber: invoiceLabel,
+              reason,
+            })
+          }
         }
 
         completed += batch.length
@@ -176,6 +203,9 @@ export default function InvoiceSendPanel({
       setNotice(
         `${accepted} accepted by provider, ${failed} failed, ${uncertain} uncertain, ${skipped} skipped. Provider acceptance does not prove handset delivery.`
       )
+      if (failureDetails.length > 0) {
+        setError(`Invoice SMS issues:\n${failureDetails.join('\n')}`)
+      }
     } catch (caught) {
       console.error('[InvoiceSendPanel] Failed to submit invoice SMS batch', {
         cycleId,
@@ -250,7 +280,7 @@ export default function InvoiceSendPanel({
         )}
       </div>
 
-      {error && <div role="alert" className="rounded-xl bg-[#fff0ee] p-4 text-sm text-[#a1322b]">{error}</div>}
+      {error && <div role="alert" className="whitespace-pre-line rounded-xl bg-[#fff0ee] p-4 text-sm text-[#a1322b]">{error}</div>}
       {notice && <div role="status" className="rounded-xl bg-[#e7f7ee] p-4 text-sm text-[#205747]">{notice}</div>}
       {sending && (
         <div className="rounded-xl bg-white p-4 text-sm font-semibold text-[#1e6a59]">
