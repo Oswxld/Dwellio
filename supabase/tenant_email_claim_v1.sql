@@ -68,7 +68,7 @@ begin
      and t.status = 'active'
      and t.user_id is null;
 
-  select pg_catalog.coalesce(pg_catalog.array_agg(t.id), '{}'::uuid[])
+  select coalesce(pg_catalog.array_agg(t.id), '{}'::uuid[])
     into v_tenant_ids
     from public.tenants t
    where pg_catalog.lower(pg_catalog.btrim(t.email)) = v_email
