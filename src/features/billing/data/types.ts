@@ -130,6 +130,7 @@ export interface FinalizedInvoiceRow {
   id: string
   bill_draft_id: string
   invoice_number: string
+  phone: string | null
   status: string
 
   current_charges: number
