@@ -20,18 +20,19 @@ The backend must not trust a callback payload as sufficient financial proof. Bef
 
 - PayBill shortcode: `mpesa_property_settings.paybill_shortcode`; property-specific, approved separately.
 - Credentials: stored as JSON in Supabase Vault, referenced by `mpesa_property_settings.credential_secret_id`. Encrypted at rest. One secret can be referenced by multiple properties *only if* that same Daraja merchant authorization covers them.
-- Tenant account reference: `mpesa_tenant_accounts.account_reference`. First sandbox use generates the stable **`DW` + first 10 hex characters of the tenant UUID** (max 12 characters), per property. **Confirm the reference scheme with each landlord before production**, especially if their PayBill already uses existing tenant/unit account numbers.
+- Tenant account reference: the tenant's **actual unit number** from `public.units.name` (e.g. `A12`), using the follow-up migration `supabase/mpesa_unit_account_reference_v2.sql`. Dwellio sends this exact value as Daraja's `AccountReference` and snapshots it on the STK attempt. It must be 1–12 letters/digits/hyphens; if duplicate across units sharing the same PayBill (including across properties), STK initiation is blocked rather than guessing. The legacy `mpesa_tenant_accounts` table remains for historical compatibility but is no longer used for new attempts. Confirm the unit number convention with each landlord before collecting funds.
 - When a tenant has unpaid invoices at multiple properties, this initial version refuses an STK request. The current `auto_allocate_payment` function is tenant-wide; enabling multi-property collections requires property-scoped allocation so one landlord's funds are never assigned to another PayBill/property.
 
 ## Step 1 — Apply the migration
 
-Run in Supabase SQL Editor:
+Run these files **in order** in Supabase SQL Editor:
 
-`supabase/mpesa_multi_landlord_foundation_v1.sql`
+1. `supabase/mpesa_multi_landlord_foundation_v1.sql` — original tables and payment functions (skip if already applied).
+2. `supabase/mpesa_unit_account_reference_v2.sql` — overrides STK reservation to use the tenant's unit number, with duplicate-reference protection. **Always apply this after the original foundation.**
 
 Includes:
 - `mpesa_property_settings`
-- `mpesa_tenant_accounts`
+- `mpesa_tenant_accounts` (legacy compatibility only; unit number now sourced from `units.name`)
 - `mpesa_stk_requests`
 - `get_my_property_mpesa_settings(uuid)`
 - `request_my_property_mpesa_setup(uuid,text)`
@@ -120,7 +121,7 @@ const { data, error } = await supabase.functions.invoke('mpesa-stk-initiate', {
 ## Before production or enabling the tenant Pay button
 
 - Confirm the correct landlord merchant's Daraja credentials, **licensed/authorized PayBill** and production Go-Live activation.
-- Confirm the tenant-specific account-reference convention with the PayBill owner.
+- Verify each configured `units.name` is a short, unique **PayBill account number** under that PayBill, including any other property using the same PayBill. No automatic building prefixes are added.
 - Implement Safaricom Query/reconciliation with transaction evidence and duplicate-callback protection.
 - Integrate the deployed `record_payment`, `auto_allocate_payment`, and `refresh_invoice_balance` functions in one atomic, idempotent transaction **after verified success**. Ensure payment method enum/signatures match the real database. Accounting functions are NOT automatically created by this foundation.
 - Handle webhook retries, provider outages, timeouts and refund/reversal processes.
