@@ -38,6 +38,10 @@ const BillingPage = lazy(
   () => import('./pages/BillingPage'),
 )
 
+const MpesaSettingsPage = lazy(
+  () => import('./pages/MpesaSettingsPage'),
+)
+
 export default function App() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -306,6 +310,11 @@ export default function App() {
         <Route
           path="billing"
           element={<BillingPage />}
+        />
+
+        <Route
+          path="settings/payments"
+          element={<MpesaSettingsPage organizationId={organizationId} />}
         />
 
         <Route
