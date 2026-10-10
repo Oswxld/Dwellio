@@ -4,6 +4,7 @@
 -- Nothing here gives landlords access to Daraja secrets or payment write privileges.
 begin;
 
+create schema if not exists vault;
 create extension if not exists supabase_vault with schema vault;
 
 create table if not exists public.mpesa_property_settings (
