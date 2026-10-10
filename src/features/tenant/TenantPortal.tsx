@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import {
@@ -48,7 +48,7 @@ function greeting() {
   return hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
 }
 
-function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
   return <section className={`tenant-card ${className}`}>{children}</section>
 }
 
@@ -239,7 +239,7 @@ function TenantLease({ snapshot }: { snapshot: TenantPortalSnapshot }) {
   const end = new Date(`${lease.end_date}T12:00:00`).getTime()
   const progress = end > start ? Math.max(0, Math.min(100, ((Date.now() - start) / (end - start)) * 100)) : 0
 
-  async function sendRequest(event: React.FormEvent<HTMLFormElement>) {
+  async function sendRequest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setBusy(true)
     setRequestError('')
