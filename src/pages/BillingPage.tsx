@@ -211,6 +211,7 @@ export default function BillingPage() {
     const matchesQuery = !query || [
       invoice.invoice_number,
       invoice.tenantName,
+      invoice.phone ?? '',
       invoice.unitName,
     ].some(value => value.toLowerCase().includes(query))
     const matchesStatus =
@@ -1161,7 +1162,7 @@ export default function BillingPage() {
                       <input
                         value={invoiceSearch}
                         onChange={event => setInvoiceSearch(event.target.value)}
-                        placeholder="Search tenant, unit, or invoice number…"
+                        placeholder="Search tenant, phone, unit, or invoice number…"
                         className="h-10 w-full rounded-lg bg-[#edfdf3] pl-10 pr-4 text-sm text-[#111e19] outline-none focus:ring-2 focus:ring-[#1e6a59]/15"
                       />
                     </div>
@@ -1178,10 +1179,11 @@ export default function BillingPage() {
                   </div>
 
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[1050px] border-collapse text-left text-sm">
+                    <table className="w-full min-w-[1160px] border-collapse text-left text-sm">
                       <thead className="bg-[#e7f7ee] text-[11px] uppercase tracking-[0.08em] text-[#424845]">
                         <tr>
                           <th className="px-5 py-3">Tenant</th>
+                          <th className="px-4 py-3">Phone</th>
                           <th className="px-4 py-3">Unit</th>
                           <th className="px-4 py-3">Invoice</th>
                           <th className="px-4 py-3 text-right">Current charges</th>
@@ -1196,6 +1198,7 @@ export default function BillingPage() {
                         {visibleInvoices.map(invoice => (
                           <tr key={invoice.id} className="hover:bg-[#edfdf3]/55">
                             <td className="px-5 py-4 font-semibold text-[#111e19]">{invoice.tenantName}</td>
+                            <td className="px-4 py-4 font-mono text-xs text-[#424845]">{invoice.phone ?? 'Not available'}</td>
                             <td className="px-4 py-4 text-[#424845]">{invoice.unitName}</td>
                             <td className="px-4 py-4 font-mono text-xs font-semibold text-[#1e6a59]">{invoice.invoice_number}</td>
                             <td className="px-4 py-4 text-right font-mono font-semibold text-[#111e19]">{money(invoice.current_charges)}</td>
@@ -1209,10 +1212,10 @@ export default function BillingPage() {
                           </tr>
                         ))}
                         {!loadingInvoices && visibleInvoices.length === 0 && (
-                          <tr><td colSpan={9} className="px-5 py-12 text-center text-sm text-[#737875]">No finalized invoices match this view.</td></tr>
+                          <tr><td colSpan={10} className="px-5 py-12 text-center text-sm text-[#737875]">No finalized invoices match this view.</td></tr>
                         )}
                         {loadingInvoices && finalizedInvoices.length === 0 && (
-                          <tr><td colSpan={9} className="px-5 py-12 text-center text-sm text-[#737875]">Loading finalized invoices…</td></tr>
+                          <tr><td colSpan={10} className="px-5 py-12 text-center text-sm text-[#737875]">Loading finalized invoices…</td></tr>
                         )}
                       </tbody>
                     </table>
@@ -1339,8 +1342,9 @@ export default function BillingPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 border-b border-[#c2c8c4]/40 py-6 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-4 border-b border-[#c2c8c4]/40 py-6 sm:grid-cols-3 lg:grid-cols-5">
                 <div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#737875]">Tenant</div><div className="mt-1 font-semibold text-[#111e19]">{selectedInvoice.invoice.tenantName}</div></div>
+                <div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#737875]">Phone</div><div className="mt-1 font-mono text-sm font-semibold text-[#111e19]">{selectedInvoice.invoice.phone ?? 'Not available'}</div></div>
                 <div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#737875]">Unit</div><div className="mt-1 font-semibold text-[#1e6a59]">{selectedInvoice.invoice.unitName}</div></div>
                 <div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#737875]">Financial status</div><div className="mt-1 font-semibold capitalize text-[#005142]">{selectedInvoice.invoice.status.replaceAll('_', ' ')}</div></div>
                 <div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#737875]">Delivery status</div><div className="mt-1 font-semibold text-[#424845]">Not sent</div></div>
