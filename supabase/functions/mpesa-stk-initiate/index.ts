@@ -54,7 +54,7 @@ export default {
     const amount = body?.amount;
     if (typeof propertyId !== "string" || !uuid.test(propertyId) ||
         typeof phone !== "string" || phone.length > 24 ||
-        !Number.isSafeInteger(amount) || Number(amount) <= 0) {
+        (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount <= 0)) {
       return Response.json({ error: "Valid property_id, phone_number and whole-KSh amount required" },
         { status: 400 });
     }
