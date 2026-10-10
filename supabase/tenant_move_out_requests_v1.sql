@@ -42,8 +42,10 @@ create index if not exists move_out_requests_tenant_history_idx
 create index if not exists move_out_requests_lease_history_idx
   on public.move_out_requests (lease_id, submitted_at desc);
 
--- A unit with active OR notice_given tenancy is occupied; do not vacate on notice.
--- Keep pending_confirmation handling aligned with the LIVE lease_status enum.
+-- An active or notice_given lease keeps the unit occupied.
+-- A pending_confirmation or not_moved_in_yet lease reserves the unit
+-- unless another lease is already occupying it (occupied takes precedence).
+-- Match these statuses to the LIVE lease_status enum.
 create or replace function public.sync_unit_status_from_leases(p_unit_id uuid)
 returns void
 language plpgsql
@@ -61,7 +63,7 @@ begin
   elsif exists (
     select 1 from public.leases l
     where l.unit_id = p_unit_id
-      and l.status = 'pending_confirmation'
+      and l.status in ('pending_confirmation', 'not_moved_in_yet')
       and l.deleted_at is null
   ) then
     update public.units set status = 'reserved' where id = p_unit_id;
@@ -458,7 +460,8 @@ grant execute on function public.review_move_out_request(uuid, text, text) to au
 revoke all on function public.issue_lease_notice(uuid, date) from public, anon;
 grant execute on function public.issue_lease_notice(uuid, date) to authenticated;
 
--- Reconcile already-noticed occupied units to the corrected unit status logic.
+-- Reconcile units with live leases so existing not_moved_in_yet units become
+-- reserved immediately; notice_given units stay occupied.
 do $do$
 declare
   v_unit_id uuid;
@@ -466,7 +469,10 @@ begin
   for v_unit_id in
     select distinct l.unit_id
     from public.leases l
-    where l.status = 'notice_given' and l.deleted_at is null
+    where l.status in (
+      'active', 'notice_given', 'pending_confirmation', 'not_moved_in_yet'
+    )
+      and l.deleted_at is null
   loop
     perform public.sync_unit_status_from_leases(v_unit_id);
   end loop;
