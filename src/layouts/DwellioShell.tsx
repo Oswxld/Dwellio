@@ -53,7 +53,9 @@ export default function DwellioShell({
   const location = useLocation()
 
   const activeNav =
-    location.pathname.startsWith('/billing')
+    location.pathname.startsWith('/settings/payments')
+      ? 'Payment Settings'
+      : location.pathname.startsWith('/billing')
       ? 'Billing'
       : 'Dashboard'
 
@@ -166,14 +168,13 @@ export default function DwellioShell({
           <button
             className="nav-item"
             type="button"
-            onClick={() =>
-              setNotice(
-                'Settings is the next module — this dashboard keeps the navigation ready for it.',
-              )
+            onClick={() => {
+              setNotice('')
+              navigate('/settings/payments')
             }
           >
             <span className="nav-icon">⚙</span>
-            <span>Settings</span>
+            <span>Payment Settings</span>
           </button>
 
           <button
