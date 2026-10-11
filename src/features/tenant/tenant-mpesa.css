@@ -1,0 +1,20 @@
+/* Tenant M-Pesa checkout — matches the existing invoice palette. */
+.ti-mpesa-modal{max-width:450px;width:min(94vw,450px);max-height:min(92vh,790px);overflow-y:auto;display:grid;gap:13px}
+.ti-mpesa-modal h2{margin:0}
+.ti-mpesa-sandbox{display:inline-block;font-weight:750;color:#8a570e;background:#fff6dd;border-radius:9px;padding:7px 11px;font-size:11px}
+.ti-mpesa-destination{background:#f0f8f2;border:1px solid #daeae0;border-radius:15px;padding:14px;display:grid;gap:10px}
+.ti-mpesa-destination>div{display:flex;justify-content:space-between;align-items:start;gap:12px}
+.ti-mpesa-destination span{font-size:11px;color:#60766b}
+.ti-mpesa-destination strong{font-size:13px;color:#10211c;text-align:right;overflow-wrap:anywhere}
+.ti-mpesa-form{display:grid;gap:14px}
+.ti-mpesa-form label{font-size:12px;color:#203c2d;font-weight:800;display:grid;gap:6px;text-align:left}
+.ti-mpesa-form input{width:100%;font:inherit;font-size:15px;background:#fff;color:#10211c;border:1px solid #c8d9ce;border-radius:12px;padding:11px 13px;min-height:43px}
+.ti-mpesa-form input:focus{outline:2px solid #2b9e78;outline-offset:1px}
+.ti-mpesa-form .ti-button{width:100%}
+.ti-mpesa-form>small,.ti-mpesa-hint{font-size:11px;line-height:1.5;color:#66776c}
+.ti-mpesa-warning{padding:11px;border:1px solid #f3d5a8;border-radius:12px;background:#fff8e8;color:#794b0b;font-size:12px;line-height:1.5}
+.ti-mpesa-result{display:grid;gap:7px;background:#f0f8f2;border:1px solid #d1e6d8;border-radius:14px;padding:15px;text-align:left}
+.ti-mpesa-result strong{color:#163c2c;font-size:16px}
+.ti-mpesa-result p{font-size:13px;color:#4b6456;line-height:1.55}
+.ti-mpesa-result small{color:#4b6456;font-size:11px;overflow-wrap:anywhere}
+.ti-mpesa-secondary{border:1px solid #b9cec2;background:white;color:#19452e}

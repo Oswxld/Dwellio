@@ -6,6 +6,7 @@ import {
   type TenantInvoice,
   type TenantInvoiceCharge,
 } from './data/tenantInvoiceRepository'
+import TenantMpesaCheckout from './TenantMpesaCheckout'
 import './tenant-invoices.css'
 
 function Icon({ name }: { name: string }) {
@@ -59,25 +60,6 @@ function LoadError({ message, retry }: { message: string; retry: () => void }) {
   </div>
 }
 
-function PaymentUnavailable({ close }: { close: () => void }) {
-  return <div className="ti-overlay" role="presentation" onClick={close}>
-    <section role="dialog" aria-modal="true" aria-labelledby="ti-payment-title"
-      className="ti-modal" onClick={event => event.stopPropagation()}>
-      <div className="ti-modal-top">
-        <span className="ti-handle" />
-        <button type="button" className="ti-icon-button" aria-label="Close payment information" onClick={close}>
-          <Icon name="close" />
-        </button>
-      </div>
-      <div className="ti-modal-emblem"><Icon name="smartphone" /></div>
-      <h2 id="ti-payment-title">M-Pesa payments</h2>
-      <p>The secure STK Push checkout is not yet connected. No payment has been requested or processed.</p>
-      <p>When enabled, Safaricom will send a prompt to your phone. Enter your PIN in the official M-Pesa prompt, never on Dwellio.</p>
-      <button className="ti-button ti-button-dark" type="button" onClick={close}>Got it</button>
-    </section>
-  </div>
-}
-
 export function TenantInvoiceList({ outstandingBalance }: { outstandingBalance: number | null }) {
   const [invoices, setInvoices] = useState<TenantInvoice[]>([])
   const [status, setStatus] = useState<StatusFilter>('all')
@@ -108,6 +90,11 @@ export function TenantInvoiceList({ outstandingBalance }: { outstandingBalance: 
     (status === 'all' || invoiceStatus(inv) === status) &&
     (month === 'all' || inv.period_start.startsWith(month))
   ), [invoices, status, month])
+  // Keep the account balance fresh after successful allocation. The parent
+  // portal snapshot is only loaded on initial navigation.
+  const currentBalance = !loading && !error
+    ? invoices.reduce((total, inv) => total + Number(inv.outstanding_amount || 0), 0)
+    : outstandingBalance
 
   return <div className="ti-page">
     <div className="ti-intro">
@@ -118,16 +105,16 @@ export function TenantInvoiceList({ outstandingBalance }: { outstandingBalance: 
 
     <section className="ti-balance-card">
       <div className="ti-balance-label"><Icon name="account_balance_wallet" /> Outstanding balance</div>
-      <div className="ti-hero-money">{money(outstandingBalance)}</div>
-      <p>{outstandingBalance == null
+      <div className="ti-hero-money">{money(currentBalance)}</div>
+      <p>{currentBalance == null
         ? 'A recorded account balance is not available yet.'
         : 'Your recorded unpaid account balance'}</p>
       <button className="ti-button ti-button-dark" type="button"
-        disabled={outstandingBalance == null || outstandingBalance <= 0}
+        disabled={currentBalance == null || currentBalance < 1}
         onClick={() => setPaymentOpen(true)}>
         <span className="ti-mpesa-mark">M</span> Pay with M-Pesa <Icon name="arrow_forward" />
       </button>
-      <small>Payments are not enabled yet. Previous balances shown on invoices are historical references, not extra charges.</small>
+      <small>Sandbox M-Pesa checkout is for testing only. Previous balances shown on invoices are historical references, not extra charges.</small>
     </section>
 
     <div className="ti-history-header">
@@ -182,7 +169,8 @@ export function TenantInvoiceList({ outstandingBalance }: { outstandingBalance: 
         </Link>)}
       </div>
     }
-    {paymentOpen && <PaymentUnavailable close={() => setPaymentOpen(false)} />}
+    {paymentOpen && <TenantMpesaCheckout close={() => setPaymentOpen(false)}
+      onConfirmed={() => setRefreshKey(key => key + 1)} />}
   </div>
 }
 
@@ -335,6 +323,8 @@ export function TenantInvoiceDetails() {
           <span className="ti-mpesa-mark">M</span> Pay with M-Pesa</button>
         : <span className="ti-paid-note"><Icon name="check_circle" /> Paid</span>}
     </section>
-    {paymentOpen && <PaymentUnavailable close={() => setPaymentOpen(false)} />}
+    {paymentOpen && <TenantMpesaCheckout close={() => setPaymentOpen(false)}
+      invoiceId={invoiceId} suggestedAmount={remaining}
+      onConfirmed={() => setRefreshKey(key => key + 1)} />}
   </div>
 }
