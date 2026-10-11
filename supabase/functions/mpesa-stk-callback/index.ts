@@ -29,6 +29,7 @@ type StkAttempt = {
   amount: number;
   status: string;
   callback_payload: unknown;
+  verification_status: string;
 };
 type QueryEvidence = {
   raw: Record<string, unknown>;
@@ -38,7 +39,6 @@ type QueryEvidence = {
   checkoutId: string | null;
   merchantId: string | null;
 };
-const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 // Match conventional UUID syntax. Callback token is an opaque unguessable UUID.
 const validUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -200,7 +200,7 @@ export default {
 
     const { data: stored, error: readError } = await ctx.supabaseAdmin
       .from("mpesa_stk_requests")
-      .select("id,callback_token,checkout_request_id,merchant_request_id,paybill_shortcode,phone_number,amount,status,callback_payload")
+      .select("id,callback_token,checkout_request_id,merchant_request_id,paybill_shortcode,phone_number,amount,status,callback_payload,verification_status")
       .eq("id", attemptId).maybeSingle();
     if (readError) {
       console.error("[MPESA] Could not read request", { attemptId, reason: readError.message });
@@ -222,6 +222,17 @@ export default {
 
     const previous = (attempt.callback_payload as { Body?: { stkCallback?: StkCallback } } | null)
       ?.Body?.stkCallback;
+    if (previous && attempt.verification_status === "mismatch") {
+      return Response.json({ ok: false, status: "needs_review",
+        reason: "Conflicting callback evidence requires operator review" }, { status: 409 });
+    }
+    if (previous && sameCallback(previous, cb) &&
+        ["query_matched","query_failed"].includes(attempt.verification_status)) {
+      return Response.json({
+        ok: true, status: attempt.status,
+        verification_status: attempt.verification_status, settled: false,
+      });
+    }
     if (previous && !sameCallback(previous, cb)) {
       // Callback substitution/conflict: fail closed, retain ORIGINAL raw evidence.
       await ctx.supabaseAdmin.from("mpesa_stk_requests")
@@ -235,7 +246,7 @@ export default {
     // Record callback before external query so evidence survives network failure.
     // Only the first callback may populate callback_payload.
     if (!previous) {
-      const { error: saveError } = await ctx.supabaseAdmin
+      const { data: saved, error: saveError } = await ctx.supabaseAdmin
         .from("mpesa_stk_requests")
         .update({
           status: "callback_received",
@@ -247,7 +258,20 @@ export default {
         })
         .eq("id", attemptId)
         .is("callback_payload", null)
-        .neq("status", "confirmed");
+        .neq("status", "confirmed")
+        .select("id").maybeSingle();
+      if (!saveError && !saved) {
+        const { data: latest } = await ctx.supabaseAdmin.from("mpesa_stk_requests")
+          .select("callback_payload,status").eq("id",attemptId).maybeSingle();
+        const latestCallback = (latest?.callback_payload as {
+          Body?: { stkCallback?: StkCallback }
+        } | null)?.Body?.stkCallback;
+        if (!latestCallback || !sameCallback(latestCallback, cb)) {
+          // A different concurrent callback won the insert; do not overwrite it.
+          return Response.json({ ok: false, status: "needs_review",
+            reason: "Callback was already recorded or transaction settled" }, { status: 409 });
+        }
+      }
       if (saveError) {
         console.error("[MPESA] Failed to persist callback", { attemptId, reason: saveError.message });
         return Response.json({ error: "Could not persist callback" }, { status: 503 });
@@ -260,7 +284,6 @@ export default {
       details.amount === Number(attempt.amount) &&
       details.phone === attempt.phone_number
     );
-    const now = new Date().toISOString();
 
     async function recordVerification(
       status: "callback_received" | "failed" | "needs_review",
@@ -285,6 +308,8 @@ export default {
       const { data, error } = await ctx.supabaseAdmin
         .from("mpesa_stk_requests")
         .update(patch).eq("id", attemptId).neq("status", "confirmed")
+        .neq("verification_status","mismatch")
+        .eq("callback_result_code",cb.ResultCode)
         .select("id").maybeSingle();
       if (error) {
         console.error("[MPESA] Could not store query verification", { attemptId, reason: error.message });
