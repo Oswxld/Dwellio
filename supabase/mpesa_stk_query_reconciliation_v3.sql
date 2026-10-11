@@ -27,7 +27,7 @@ alter table public.mpesa_stk_requests
 -- A query only cross-checks status/identifiers. Standard STK Push Query
 -- generally does not return amount/receipt, so "query_matched" is NOT
 -- accounting settlement and must never alone create public.payments rows.
-do $
+do $$
 begin
   if not exists (
     select 1 from pg_constraint
@@ -40,6 +40,6 @@ begin
         ('not_checked','query_pending','query_matched','query_failed','mismatch','unavailable'));
   end if;
 end;
-$;
+$$;
 
 commit;
