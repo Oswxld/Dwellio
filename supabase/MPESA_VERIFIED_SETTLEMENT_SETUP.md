@@ -1,3 +1,5 @@
+> **V1 UPDATE (October 2026):** The agreed policy is now automatic settlement after a successful callback AND matching independent Safaricom STK Query. The optional merchant-statement gate described below is the earlier V4 design and is superseded by **`supabase/mpesa_query_matched_autosettlement_v5.sql`**. See **`supabase/MPESA_V1_AUTO_SETTLEMENT_SETUP.md`** for the active process and deployment order. STK Query corroborates status/IDs but not receipt/amount independently. Sandbox only.
+
 # Dwellio M-Pesa: verified settlement into payments and invoice allocations (v4)
 
 ## What is implemented
