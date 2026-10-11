@@ -147,6 +147,29 @@ The callback now:
 
 For records left in `needs_review`, a future privileged retry/reconciliation job should re-query Safaricom; do not trigger duplicate STK prompts or directly edit the `status` to `confirmed`. A matching result is *still not money booked*. A later atomic settlement function is needed to create one confirmed `payments` row and call `auto_allocate_payment` safely.
 
+## Verified accounting settlement (v4)
+
+After applying the callback/query evidence migration, the **separate** settlement
+bridge is in `supabase/mpesa_verified_settlement_v4.sql`. It implements two
+database triggers:
+
+- When a **merchant-reconciled** STK attempt is changed to `confirmed`, post one
+  `payments` record via `record_payment`.
+- When a `payments` row becomes `completed`, call `auto_allocate_payment`
+  to clear the tenant's oldest unpaid invoices.
+
+Both triggers execute **inside one transaction** and roll back together on
+error. A separate `mpesa_merchant_confirmations` record must be created
+**only after independent merchant transaction verification**; the callback's
+`query_matched` flag alone cannot create money. See
+`supabase/MPESA_VERIFIED_SETTLEMENT_SETUP.md` for complete SQL and tests.
+
+This creates the settlement path but **does not yet fully automate merchant
+transaction reconciliation**. Safaricom Transaction Status needs separately
+authorized initiator/security credentials and asynchronous results; until
+that's implemented, verify via official merchant records and use the
+privileged SQL workflow described in that guide.
+
 ## Before production or enabling the tenant Pay button
 
 - Confirm the correct landlord merchant's Daraja credentials, **licensed/authorized PayBill** and production Go-Live activation.
