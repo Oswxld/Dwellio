@@ -96,7 +96,8 @@ begin
        or NEW.mpesa_receipt is distinct from OLD.mpesa_receipt
        or NEW.checkout_request_id is distinct from OLD.checkout_request_id
        or NEW.merchant_request_id is distinct from OLD.merchant_request_id
-       or NEW.payment_id is distinct from OLD.payment_id and OLD.payment_id is not null
+       or (OLD.payment_id is not null
+           and NEW.payment_id is distinct from OLD.payment_id)
     then
       raise exception 'A confirmed M-Pesa payment is immutable';
     end if;
@@ -197,8 +198,10 @@ as $function$
 begin
   if NEW.status::text <> 'completed' then return NEW; end if;
 
-  if TG_OP = 'UPDATE' and OLD.status::text = 'completed' then
-    return NEW;
+  if TG_OP = 'UPDATE' then
+    if OLD.status::text = 'completed' then
+      return NEW;
+    end if;
   end if;
 
   -- Serialize concurrent completed payment allocations for this tenant.
