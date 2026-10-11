@@ -1,8 +1,9 @@
-// Dwellio: STK callback + independent Safaricom STK Push status query (SANDBOX).
-// The public callback is NOT trusted as proof of paid amount/receipt.
-// The STK query corroborates STATUS and IDs, but its standard response does
-// not contain the receipt/amount. DO NOT create payments or allocate invoices
-// here; reconciliation to the merchant's payment records comes next.
+// Dwellio: V1 STK callback, Safaricom STK Query and automatic settlement.
+// SANDBOX ONLY. Only matching successful callback+STK Query results are accepted.
+// Query confirms STATUS/IDs (not receipt or amount); callback metadata must
+// match the original Dwellio STK amount, payer phone and unused receipt.
+// The trusted service-role SQL RPC atomically records/allocates a completed
+// payment; an unverified or mismatched callback can NEVER credit invoices.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { withSupabase } from "jsr:@supabase/server@^1";
 
@@ -226,11 +227,36 @@ export default {
       return Response.json({ ok: false, status: "needs_review",
         reason: "Conflicting callback evidence requires operator review" }, { status: 409 });
     }
+    // A matching repeated callback can safely RETRY settlement if the query
+    // was already confirmed but SQL posting previously failed (e.g. migration
+    // not applied). The SQL finalizer locks the attempt and is idempotent.
     if (previous && sameCallback(previous, cb) &&
-        ["query_matched","query_failed"].includes(attempt.verification_status)) {
+        attempt.verification_status === "query_matched") {
+      const { data: settled, error: settleError } = await ctx.supabaseAdmin.rpc(
+        "finalize_query_matched_mpesa_stk", { p_stk_request_id: attemptId },
+      );
+      if (settleError) {
+        console.error("[MPESA] V1 settlement retry pending", {
+          attemptId, reason: settleError.message,
+        });
+        return Response.json({
+          ok: true, status: "callback_received",
+          verification_status: "query_matched",
+          settlement: "pending_retry",
+          message: "Safaricom status matched, but accounting could not be posted.",
+        }, { status: 202 });
+      }
       return Response.json({
-        ok: true, status: attempt.status,
-        verification_status: attempt.verification_status, settled: false,
+        ok: true, status: settled?.status ?? "confirmed",
+        verification_status: "query_matched", payment_id: settled?.payment_id,
+        settlement: "completed",
+      });
+    }
+    if (previous && sameCallback(previous, cb) &&
+        attempt.verification_status === "query_failed") {
+      return Response.json({
+        ok: true, status: "failed",
+        verification_status: "query_failed", settlement: "not_applicable",
       });
     }
     if (previous && !sameCallback(previous, cb)) {
@@ -404,15 +430,35 @@ export default {
         reason: "Duplicate receipt" });
     }
 
-    // Status cross-checked; amount/phone/receipt only match OUR original
-    // request, not Safaricom's merchant statement. NO financial settlement.
+    // V1 tradeoff: Safaricom Query confirms STATUS, not amount or receipt.
+    // We accepted callback metadata only because it matches our own original
+    // amount/phone and unique receipt; never let a callback directly insert
+    // into payments. The restricted DB finalizer checks raw evidence AGAIN.
     const ok = await recordVerification("callback_received", "query_matched", null,
       evidence, details.receipt);
     if (!ok) return Response.json({ error: "Could not persist verification" }, { status: 503 });
+
+    const { data: posted, error: postError } = await ctx.supabaseAdmin.rpc(
+      "finalize_query_matched_mpesa_stk", { p_stk_request_id: attemptId },
+    );
+    if (postError) {
+      // The atomic SQL transaction rolls back partial invoice allocations.
+      // Keep the query evidence for a safe retry/reconciliation; no fake paid state.
+      console.error("[MPESA] V1 accounting settlement failed", {
+        attemptId, reason: postError.message,
+      });
+      return Response.json({
+        ok: true, status: "callback_received",
+        verification_status: "query_matched", settlement: "pending_retry",
+        message: "STK status verified with Safaricom; accounting posting is pending.",
+      }, { status: 202 });
+    }
     return Response.json({
-      ok: true, status: "callback_received", verification_status: "query_matched",
-      verified_status: true, settled: false,
-      note: "STK Query agrees with callback; receipt/amount still require merchant reconciliation before payment allocation.",
+      ok: true, status: posted?.status ?? "confirmed",
+      verification_status: "query_matched",
+      payment_id: posted?.payment_id,
+      settlement: "completed",
+      note: "Safaricom STK status corroborated; payment recorded and allocated.",
     });
   }),
 };
