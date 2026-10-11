@@ -118,6 +118,35 @@ const { data, error } = await supabase.functions.invoke('mpesa-stk-initiate', {
 - To read status, call `get_my_mpesa_stk_status(attempt_id)` with the tenant's JWT.
 - To make a second attempt, first check and reconcile the previous one; do not loop/retry blindly.
 
+## STK callback status query reconciliation (v3)
+
+**Before replacing/deploying these functions**, run **`supabase/mpesa_stk_query_reconciliation_v3.sql`** in Supabase SQL Editor after the foundation migration. This adds `verification_status`, `verification_error`, `stk_query_response_code`, `stk_query_result_code`, `stk_query_result_description`, `stk_query_payload`, and `stk_query_checked_at` to `mpesa_stk_requests`. The migration is safe to re-run. Do not skip it: the new callback expects the columns.
+
+If you use the Supabase Dashboard rather than CLI (recommended when you prefer manual deployment):
+1. Open **Edge Functions → mpesa-stk-callback**, replace its source code from **`supabase/functions/mpesa-stk-callback/index.ts`**, and deploy. Keep **Verify JWT disabled** for this provider callback.
+2. Open **Edge Functions → mpesa-stk-initiate**, replace the code from **`supabase/functions/mpesa-stk-initiate/index.ts`**, and deploy. Keep **Verify JWT enabled** for tenant initiation.
+3. The `MPESA_CALLBACK_BASE_URL` setting and sandbox merchant credentials in Vault are still required; this change introduces **no new keys**.
+
+The callback now:
+- Validates the opaque per-attempt callback URL token, `CheckoutRequestID` and `MerchantRequestID` against the original STK request.
+- Stores the first callback as evidence, **before** querying Safaricom. Identical retries are idempotent; conflicting callbacks are quarantined.
+- Uses the same property's **sandbox** Daraja credentials from Vault to authenticate and call `POST https://sandbox.safaricom.co.ke/mpesa/stkpushquery/v1/query` with the **original** `CheckoutRequestID`.
+- Compares query result code and IDs with the callback and original request. Also checks callback amount and phone against original amount/phone; ensures receipt shape and detects another STK attempt with that receipt.
+- Stores the **full query response** and the verification outcome for investigation. No API keys, passkeys or OAuth access tokens are stored in query evidence.
+- **Never creates rows in `payments`, never marks an STK attempt `confirmed`, and never calls `auto_allocate_payment`.**
+
+| Condition | `mpesa_stk_requests.status` | `verification_status` |
+| --- | --- | --- |
+| Safaricom Query says success; callback also says success; IDs and locally known amount/phone/receipt agree | `callback_received` | `query_matched` |
+| Query and callback both report the same unsuccessful final result | `failed` | `query_failed` |
+| Query and callback disagree, IDs don't match, callback amount/phone differs, or receipt is reused | `needs_review` | `mismatch` |
+| Query unavailable/timed out, invalid or merchant credentials missing | `needs_review` | `unavailable` |
+| Request is querying Safaricom | `callback_received` | `query_pending` |
+
+**Important limitation:** Safaricom's standard **STK Push Query** response confirms the status and request IDs, but normally **does not contain `Amount`, `PhoneNumber`, or `MpesaReceiptNumber`**. A `query_matched` result only means the status corroborates the callback, while the amount/phone/receipt have been checked against what *Dwellio* originally requested. It is **not an independent amount/receipt comparison to Safaricom's merchant transaction ledger**. Such reconciliation must be added separately with the merchant's authorized transaction records/status API before automated monetary settlement.
+
+For records left in `needs_review`, a future privileged retry/reconciliation job should re-query Safaricom; do not trigger duplicate STK prompts or directly edit the `status` to `confirmed`. A matching result is *still not money booked*. A later atomic settlement function is needed to create one confirmed `payments` row and call `auto_allocate_payment` safely.
+
 ## Before production or enabling the tenant Pay button
 
 - Confirm the correct landlord merchant's Daraja credentials, **licensed/authorized PayBill** and production Go-Live activation.
