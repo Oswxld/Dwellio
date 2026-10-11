@@ -162,24 +162,26 @@ export default {
           message: "Safaricom did not accept the STK request" }, { status: 502 });
       }
 
-      await updateAttempt({
-        status: "awaiting_callback",
-        checkout_request_id: checkoutId,
-        merchant_request_id: typeof merchantId === "string" ? merchantId : null,
-        response_code: responseCode,
-        response_description: String(result.ResponseDescription ?? "").slice(0, 500),
-      });
-
-      // A very fast callback can arrive before the initiating request saves
-      // the CheckoutRequestID. Preserve that evidence for reconciliation.
-      const { data: updated } = await ctx.supabaseAdmin
+      // Persist IDs without overwriting a callback that arrived exceptionally
+      // quickly. A callback may already have flagged the attempt for review.
+      const { error: saveIdsError } = await ctx.supabaseAdmin
         .from("mpesa_stk_requests")
-        .select("callback_payload")
-        .eq("id", attemptId)
-        .maybeSingle();
-      if (updated?.callback_payload) {
-        await updateAttempt({ status: "callback_received" });
-      }
+        .update({
+          checkout_request_id: checkoutId,
+          merchant_request_id: typeof merchantId === "string" ? merchantId : null,
+          response_code: responseCode,
+          response_description: String(result.ResponseDescription ?? "").slice(0, 500),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", attemptId);
+      if (saveIdsError) throw new Error("Could not record accepted STK request identifiers");
+
+      // Only requests still initiating with no callback may transition to
+      // awaiting_callback. Never regress callback_received/needs_review/failed.
+      await ctx.supabaseAdmin.from("mpesa_stk_requests")
+        .update({ status: "awaiting_callback", updated_at: new Date().toISOString() })
+        .eq("id", attemptId).eq("status", "initiating")
+        .is("callback_payload", null);
 
       // Provider accepted the REQUEST only; funds are NOT confirmed here.
       return Response.json({
