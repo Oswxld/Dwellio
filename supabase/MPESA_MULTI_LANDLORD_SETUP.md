@@ -147,6 +147,20 @@ The callback now:
 
 For records left in `needs_review`, a future privileged retry/reconciliation job should re-query Safaricom; do not trigger duplicate STK prompts or directly edit the `status` to `confirmed`. A matching result is *still not money booked*. A later atomic settlement function is needed to create one confirmed `payments` row and call `auto_allocate_payment` safely.
 
+## Active V1 settlement policy
+
+For the initial sandbox version, Dwellio automatically posts a payment
+after the original STK callback and the separately authenticated Safaricom
+STK Query both confirm success for the **same transaction**. Callback amount,
+payer phone and receipt must also match the stored request. Then the trusted
+`finalize_query_matched_mpesa_stk` function invokes the existing payment
+recording and oldest-first allocation triggers in one transaction.
+
+Run **V5** `supabase/mpesa_query_matched_autosettlement_v5.sql` AFTER the
+corrected V4 foundation; the merchant-statement confirmation table introduced
+by V4 is NOT required by V1. Manual setup instructions:
+`supabase/MPESA_V1_AUTO_SETTLEMENT_SETUP.md`.
+
 ## Verified accounting settlement (v4)
 
 After applying the callback/query evidence migration, the **separate** settlement

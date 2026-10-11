@@ -69,7 +69,7 @@ create unique index if not exists mpesa_stk_payment_id_unique
   where payment_id is not null;
 
 -- A recorded link must actually point to an accounting payment.
-do $
+do $$
 begin
   if not exists (
     select 1 from pg_constraint
@@ -81,7 +81,7 @@ begin
       foreign key (payment_id) references public.payments(id) on delete restrict;
   end if;
 end;
-$;
+$$;
 
 alter table public.mpesa_merchant_confirmations enable row level security;
 revoke all on public.mpesa_merchant_confirmations from public, anon, authenticated;
