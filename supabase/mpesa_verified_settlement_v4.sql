@@ -68,9 +68,26 @@ create unique index if not exists mpesa_stk_payment_id_unique
   on public.mpesa_stk_requests(payment_id)
   where payment_id is not null;
 
+-- A recorded link must actually point to an accounting payment.
+do $
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.mpesa_stk_requests'::regclass
+      and conname = 'mpesa_stk_payment_id_fk'
+  ) then
+    alter table public.mpesa_stk_requests
+      add constraint mpesa_stk_payment_id_fk
+      foreign key (payment_id) references public.payments(id) on delete restrict;
+  end if;
+end;
+$;
+
 alter table public.mpesa_merchant_confirmations enable row level security;
 revoke all on public.mpesa_merchant_confirmations from public, anon, authenticated;
-grant select, insert, update on public.mpesa_merchant_confirmations to service_role;
+-- Immutable audit evidence: only authorized reconciliation backend may INSERT.
+grant select, insert on public.mpesa_merchant_confirmations to service_role;
+revoke update, delete on public.mpesa_merchant_confirmations from service_role;
 
 -- The verification record must come from an authorized merchant transaction
 -- result/statement, NOT a direct copy of the public STK callback.
