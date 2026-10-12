@@ -200,8 +200,7 @@ export default function TenantDirectoryView({ profiles }: Props) {
                 {visible.map(profile => {
                   const lease = currentLease(profile)
                   return (
-                    <tr key={profile.tenant.id} className="ts-data-row"
-                      onClick={() => undefined}>
+                    <tr key={profile.tenant.id} className="ts-data-row">
                       <td>
                         <Link className="ts-person" to={`/tenants/${profile.tenant.id}`}>
                           <span className="ts-avatar">{initials(profile.tenant.full_name)}</span>
