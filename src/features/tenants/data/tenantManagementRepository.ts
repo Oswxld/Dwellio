@@ -1,0 +1,345 @@
+import { supabase } from '../../../lib/supabase'
+
+export type TenantRecord = {
+  id: string
+  full_name: string
+  email: string
+  phone: string
+  identification_type: string
+  identification_number: string
+  date_of_birth: string | null
+  status: string
+  user_id: string | null
+  created_at: string
+}
+
+export type TenantLease = {
+  id: string
+  tenant_id: string
+  unit_id: string
+  start_date: string
+  end_date: string
+  notice_date: string | null
+  move_out_date: string | null
+  rent_amount: number
+  deposit_amount: number
+  due_day: number
+  grace_period_days: number
+  billing_frequency: string
+  status: string
+  propertyName: string
+  buildingName: string
+  floorName: string
+  unitName: string
+  propertyId: string
+}
+
+export type TenantInvoice = {
+  id: string
+  lease_id: string
+  tenant_id: string
+  invoice_number: string
+  billing_period_start: string
+  billing_period_end: string
+  current_charges: number
+  previous_balance: number
+  total_payable: number
+  paid_amount: number
+  outstanding_amount: number
+  status: string
+  due_date: string | null
+}
+
+export type TenantMoveOutRequest = {
+  id: string
+  lease_id: string
+  tenant_id: string
+  proposed_move_out_date: string
+  reason: string | null
+  status: 'pending' | 'accepted' | 'declined'
+  submitted_at: string
+  reviewed_at: string | null
+  decision_reason: string | null
+}
+
+export type TenantEmergencyContact = {
+  tenant_id: string
+  full_name: string
+  relationship: string
+  phone: string
+}
+
+export type TenantProfile = {
+  tenant: TenantRecord
+  leases: TenantLease[]
+  invoices: TenantInvoice[]
+  requests: TenantMoveOutRequest[]
+  contacts: TenantEmergencyContact[]
+  balance: number | null
+  balanceIssue: string | null
+}
+
+export type TenantDirectoryData = {
+  profiles: TenantProfile[]
+}
+
+function numberValue(value: unknown): number {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : 0
+}
+
+function chunks<T>(items: T[], size = 85): T[][] {
+  const batches: T[][] = []
+  for (let i = 0; i < items.length; i += size) batches.push(items.slice(i, i + size))
+  return batches
+}
+
+type RawInvoice = {
+  id: string
+  lease_id: string
+  tenant_id: string
+  invoice_number: string
+  billing_period_start: string
+  billing_period_end: string
+  current_charges: number | string
+  previous_balance: number | string
+  total_payable: number | string
+  paid_amount: number | string
+  outstanding_amount: number | string
+  status: string
+  due_date: string | null
+}
+
+type Line = { id: string; invoice_id: string }
+type Source = { invoice_line_id: string; source_invoice_id: string; amount: number | string }
+
+type BalanceResult = { amount: number | null; issue: string | null }
+
+async function computeLedgerBalances(rawInvoices: RawInvoice[]): Promise<Map<string, BalanceResult>> {
+  const results = new Map<string, BalanceResult>()
+  const active = rawInvoices.filter(invoice => invoice.status !== 'void')
+  const invoiceById = new Map(active.map(invoice => [invoice.id, invoice]))
+  const invoiceIds = active.map(invoice => invoice.id)
+  const lines: Line[] = []
+
+  // Invoice source lines identify amounts rolled into later invoices.
+  // The same debt must only appear ONCE in an organization's tenant balance.
+  for (const batch of chunks(invoiceIds)) {
+    const { data, error } = await supabase
+      .from('invoice_lines')
+      .select('id, invoice_id')
+      .in('invoice_id', batch)
+    if (error) throw error
+    lines.push(...((data ?? []) as Line[]))
+  }
+
+  const sources: Source[] = []
+  for (const batch of chunks(lines.map(line => line.id))) {
+    const { data, error } = await supabase
+      .from('invoice_line_sources')
+      .select('invoice_line_id, source_invoice_id, amount')
+      .in('invoice_line_id', batch)
+    if (error) throw error
+    sources.push(...((data ?? []) as Source[]))
+  }
+
+  const invoiceIdByLineId = new Map(lines.map(line => [line.id, line.invoice_id]))
+  const rolledByInvoice = new Map<string, number>()
+  const duplicatedByTenant = new Map<string, number>()
+  const problematicTenants = new Set<string>()
+
+  for (const source of sources) {
+    const destinationId = invoiceIdByLineId.get(source.invoice_line_id)
+    const destination = destinationId ? invoiceById.get(destinationId) : null
+    if (!destination) continue
+    const origin = invoiceById.get(source.source_invoice_id)
+
+    const amount = numberValue(source.amount)
+    if (source.source_invoice_id === destination.id ||
+        amount <= 0 || (origin && origin.tenant_id !== destination.tenant_id)) {
+      problematicTenants.add(destination.tenant_id)
+      continue
+    }
+
+    rolledByInvoice.set(destination.id, (rolledByInvoice.get(destination.id) ?? 0) + amount)
+
+    // Only subtract a copied balance when its original non-void invoice
+    // is also included in the sum; void invoices aren't counted at all.
+    if (origin) {
+      duplicatedByTenant.set(
+        destination.tenant_id,
+        (duplicatedByTenant.get(destination.tenant_id) ?? 0) + amount,
+      )
+    }
+  }
+
+  const byTenant = new Map<string, RawInvoice[]>()
+  for (const invoice of active) {
+    const group = byTenant.get(invoice.tenant_id) ?? []
+    group.push(invoice)
+    byTenant.set(invoice.tenant_id, group)
+  }
+
+  for (const [tenantId, invoices] of byTenant) {
+    // A nonzero carried-forward balance without traceable sources cannot
+    // safely be reconciled, so show a verification state rather than a guess.
+    const sourceMissing = invoices.some(invoice =>
+      numberValue(invoice.previous_balance) > 0.01 &&
+      Math.abs(numberValue(invoice.previous_balance) -
+        (rolledByInvoice.get(invoice.id) ?? 0)) > 0.01,
+    )
+    if (problematicTenants.has(tenantId) || sourceMissing) {
+      results.set(tenantId, {
+        amount: null,
+        issue: 'Carried-forward invoice sources need reconciliation before a reliable total can be shown.',
+      })
+      continue
+    }
+
+    const gross = invoices.reduce((sum, invoice) =>
+      sum + Math.max(0, numberValue(invoice.outstanding_amount)), 0)
+    const copied = duplicatedByTenant.get(tenantId) ?? 0
+    const net = gross - copied
+    if (net < -0.01) {
+      results.set(tenantId, {
+        amount: null,
+        issue: 'The recorded payments and carried-forward balances need reconciliation.',
+      })
+    } else {
+      results.set(tenantId, { amount: Math.max(net, 0), issue: null })
+    }
+  }
+  return results
+}
+
+export async function fetchTenantDirectory(organizationId: string): Promise<TenantDirectoryData> {
+  const [tenantResult, leasesResult, contactResult, invoiceResult] = await Promise.all([
+    supabase.from('tenants')
+      .select('id, full_name, email, phone, identification_type, identification_number, date_of_birth, status, user_id, created_at')
+      .eq('organization_id', organizationId)
+      .is('deleted_at', null)
+      .order('full_name'),
+    supabase.from('leases')
+      .select('id, tenant_id, unit_id, start_date, end_date, notice_date, move_out_date, rent_amount, deposit_amount, due_day, grace_period_days, billing_frequency, status')
+      .eq('organization_id', organizationId)
+      .is('deleted_at', null),
+    supabase.from('tenant_emergency_contacts')
+      .select('tenant_id, full_name, relationship, phone')
+      .eq('organization_id', organizationId),
+    // Invoice tenant_id and lease_id are authoritative; drafts aren't debts.
+    supabase.from('invoices')
+      .select('id, lease_id, tenant_id, invoice_number, billing_period_start, billing_period_end, current_charges, previous_balance, total_payable, paid_amount, outstanding_amount, status, due_date')
+      .order('billing_period_start', { ascending: false }),
+  ])
+
+  for (const result of [tenantResult, leasesResult, contactResult, invoiceResult]) {
+    if (result.error) throw result.error
+  }
+
+  const tenants = (tenantResult.data ?? []) as TenantRecord[]
+  const tenantIds = new Set(tenants.map(tenant => tenant.id))
+  const rawLeases = (leasesResult.data ?? []).filter(lease => tenantIds.has(lease.tenant_id))
+  const unitIds = [...new Set(rawLeases.map(lease => lease.unit_id))]
+  const rawInvoices = ((invoiceResult.data ?? []) as RawInvoice[])
+    .filter(invoice => tenantIds.has(invoice.tenant_id))
+
+  const [unitResult, requestResult] = await Promise.all([
+    unitIds.length
+      ? supabase.from('units').select('id, name, floor_id').in('id', unitIds)
+      : Promise.resolve({ data: [] as { id: string; name: string; floor_id: string }[], error: null }),
+    rawLeases.length
+      ? supabase.from('move_out_requests')
+        .select('id, lease_id, tenant_id, proposed_move_out_date, reason, status, submitted_at, reviewed_at, decision_reason')
+        .in('lease_id', rawLeases.map(lease => lease.id))
+        .order('submitted_at', { ascending: false })
+      : Promise.resolve({ data: [] as TenantMoveOutRequest[], error: null }),
+  ])
+
+  if (unitResult.error) throw unitResult.error
+  if (requestResult.error) throw requestResult.error
+
+  const units = unitResult.data ?? []
+  const floorsResult = units.length
+    ? await supabase.from('floors').select('id, name, building_id')
+      .in('id', [...new Set(units.map(unit => unit.floor_id))])
+    : { data: [] as { id: string; name: string; building_id: string }[], error: null }
+  if (floorsResult.error) throw floorsResult.error
+  const floors = floorsResult.data ?? []
+
+  const buildingsResult = floors.length
+    ? await supabase.from('buildings').select('id, name, property_id')
+      .in('id', [...new Set(floors.map(floor => floor.building_id))])
+    : { data: [] as { id: string; name: string; property_id: string }[], error: null }
+  if (buildingsResult.error) throw buildingsResult.error
+  const buildings = buildingsResult.data ?? []
+
+  const propertiesResult = buildings.length
+    ? await supabase.from('properties').select('id, name')
+      .eq('organization_id', organizationId)
+      .in('id', [...new Set(buildings.map(building => building.property_id))])
+    : { data: [] as { id: string; name: string }[], error: null }
+  if (propertiesResult.error) throw propertiesResult.error
+
+  const unitMap = new Map(units.map(unit => [unit.id, unit]))
+  const floorMap = new Map(floors.map(floor => [floor.id, floor]))
+  const buildingMap = new Map(buildings.map(building => [building.id, building]))
+  const propertyMap = new Map((propertiesResult.data ?? []).map(property => [property.id, property]))
+
+  const leases: TenantLease[] = rawLeases.map(lease => {
+    const unit = unitMap.get(lease.unit_id)
+    const floor = unit ? floorMap.get(unit.floor_id) : undefined
+    const building = floor ? buildingMap.get(floor.building_id) : undefined
+    const property = building ? propertyMap.get(building.property_id) : undefined
+    return {
+      ...lease,
+      rent_amount: numberValue(lease.rent_amount),
+      deposit_amount: numberValue(lease.deposit_amount),
+      propertyName: property?.name ?? 'Unknown property',
+      propertyId: property?.id ?? '',
+      buildingName: building?.name ?? 'Unknown building',
+      floorName: floor?.name ?? 'Unknown floor',
+      unitName: unit?.name ?? 'Unknown unit',
+    }
+  })
+
+  const balances = await computeLedgerBalances(rawInvoices)
+  const requests = (requestResult.data ?? []) as TenantMoveOutRequest[]
+
+  return {
+    profiles: tenants.map(tenant => ({
+      tenant,
+      leases: leases.filter(lease => lease.tenant_id === tenant.id)
+        .sort((a, b) => b.start_date.localeCompare(a.start_date)),
+      invoices: rawInvoices.filter(invoice => invoice.tenant_id === tenant.id)
+        .map(invoice => ({
+          ...invoice,
+          current_charges: numberValue(invoice.current_charges),
+          previous_balance: numberValue(invoice.previous_balance),
+          total_payable: numberValue(invoice.total_payable),
+          paid_amount: numberValue(invoice.paid_amount),
+          outstanding_amount: numberValue(invoice.outstanding_amount),
+        })),
+      contacts: (contactResult.data ?? []).filter(contact => contact.tenant_id === tenant.id),
+      requests: requests.filter(request => request.tenant_id === tenant.id),
+      balance: balances.get(tenant.id)?.amount ?? (rawInvoices.some(i => i.tenant_id === tenant.id) ? null : 0),
+      balanceIssue: balances.get(tenant.id)?.issue ??
+        (rawInvoices.some(i => i.tenant_id === tenant.id)
+          ? 'Could not reconcile the invoice ledger.'
+          : null),
+    })),
+  }
+}
+
+export async function decideMoveOutRequest(
+  requestId: string,
+  decision: 'accepted' | 'declined',
+  reason: string | null,
+) {
+  const { data, error } = await supabase.rpc('review_move_out_request', {
+    p_request_id: requestId,
+    p_decision: decision,
+    p_decision_reason: reason,
+  })
+  if (error) throw error
+  return data
+}
