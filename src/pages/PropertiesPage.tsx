@@ -128,7 +128,7 @@ export default function PropertiesPage({ organizationId }: PropertiesPageProps) 
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h2 className="font-['Newsreader'] text-2xl text-[#111e19]">Your properties</h2>
-                  <p className="mt-1 text-xs text-[#737875]">Select a property to manage its billing services.</p>
+                  <p className="mt-1 text-xs text-[#737875]">Select a property to view its units, occupancy and configuration.</p>
                 </div>
                 <label className="flex w-full items-center gap-2 rounded-xl border border-[#dcece2] bg-[#edfdf3] px-3 py-2 sm:max-w-[340px]">
                   <span className="material-symbols-outlined text-[20px] text-[#1e6a59]">search</span>
@@ -181,7 +181,7 @@ export default function PropertiesPage({ organizationId }: PropertiesPageProps) 
                         </p>
                       </div>
                       <div className="mt-5 flex items-center justify-between border-t border-[#dcece2] pt-3">
-                        <span className="text-xs font-semibold text-[#1e6a59]">Manage billing services</span>
+                        <span className="text-xs font-semibold text-[#1e6a59]">Configure property</span>
                         <span className="material-symbols-outlined text-[#1e6a59] transition group-hover:translate-x-1">arrow_forward</span>
                       </div>
                     </Link>
