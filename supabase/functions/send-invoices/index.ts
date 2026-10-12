@@ -1,12 +1,16 @@
-// Dwellio | Authenticated, manager-authorized, personalized invoice SMS submissions.
-// Each request processes up to 10 invoice IDs. Requires the invoice_sms_delivery.sql migration.
-// This function reads phone + amount from invoices on the server, never from caller-provided fields.
+// Dwellio | ONE authenticated Africa's Talking sender for monthly + move-out invoices.
+// Monthly behavior and SMS text remain unchanged. Final move-out messages are
+// itemized server-side with NO tenant login link and NO B2C payment.
+// Deploy under the EXISTING function name: send-invoices.
+// Requires invoice_sms_delivery.sql and move_out_sms_v1.sql.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { withSupabase } from "jsr:@supabase/server@^1";
 
 type Claim = {
   claimed: boolean;
+  sms_type?: "monthly" | "move_out";
+  message?: string;
   reason?: string;
   invoice_id?: string;
   phone?: string;
@@ -101,11 +105,23 @@ export default {
 
     async function updateDelivery(
       invoiceId: string,
+      kind: "monthly" | "move_out",
       fields: Record<string, unknown>,
     ) {
+      // The existing monthly SMS table stays exactly as it was.
+      // Standalone final invoices are tracked in their own table because
+      // they have no billing_cycle_id. Provider cost column differs.
+      const normalized = { ...fields };
+      if (kind === "move_out" && "cost" in normalized) {
+        normalized.provider_cost = normalized.cost;
+        delete normalized.cost;
+      }
+      const table = kind === "move_out"
+        ? "move_out_sms_deliveries"
+        : "invoice_sms_deliveries";
       const { data, error } = await ctx.supabaseAdmin
-        .from("invoice_sms_deliveries")
-        .update({ ...fields, updated_at: new Date().toISOString() })
+        .from(table)
+        .update({ ...normalized, updated_at: new Date().toISOString() })
         .eq("invoice_id", invoiceId)
         .eq("status", "sending")
         .select("invoice_id")
@@ -117,10 +133,10 @@ export default {
     }
 
     for (const invoiceId of invoiceIds) {
-      // The RPC checks permissions, finalization, phone presence and duplicates.
-      // It atomically claims an invoice before the external network call.
+      // Unified RPC dispatches to the pre-existing monthly claim or the
+      // move-out claim. Each checks permissions and prevents duplicate sends.
       const { data, error } = await ctx.supabaseAdmin.rpc(
-        "claim_invoice_sms_delivery",
+        "claim_unified_invoice_sms_delivery",
         {
           p_invoice_id: invoiceId,
           p_environment: environment,
@@ -143,12 +159,19 @@ export default {
         continue;
       }
 
+      const kind = claim.sms_type === "move_out" ? "move_out" : "monthly";
+      // Only the move-out database claim may supply a full SMS statement.
+      const message = kind === "move_out"
+        ? String(claim.message ?? "")
+        : invoiceSms(claim);
       const phone = normalizeKenyanPhone(String(claim.phone ?? ""));
-      if (!phone) {
+      if (!phone || !message.trim()) {
         try {
-          await updateDelivery(invoiceId, {
+          await updateDelivery(invoiceId, kind, {
             status: "failed",
-            error_message: "Invalid Kenyan mobile number on invoice",
+            error_message: !phone
+              ? "Invalid Kenyan mobile number on invoice"
+              : "Missing finalized move-out statement",
           });
         } catch {
           // Leave in 'sending' if the database cannot be updated; don't retry automatically.
@@ -156,7 +179,9 @@ export default {
         results.push({
           invoice_id: invoiceId,
           status: "failed",
-          reason: "Invalid Kenyan mobile number on invoice",
+          reason: !phone
+            ? "Invalid Kenyan mobile number on invoice"
+            : "Missing finalized move-out statement",
         });
         continue;
       }
@@ -164,7 +189,7 @@ export default {
       const parameters = new URLSearchParams({
         username,
         to: phone,
-        message: invoiceSms(claim),
+        message,
       });
       if (environment === "production" && senderId) {
         parameters.set("from", senderId);
@@ -205,7 +230,7 @@ export default {
             ? "unknown"
             : "failed";
 
-        await updateDelivery(invoiceId, {
+        await updateDelivery(invoiceId, kind, {
           status: state,
           phone,
           provider_message_id:
@@ -230,7 +255,7 @@ export default {
         // A timeout/network error may occur AFTER provider accepted the SMS.
         // Never auto-retry it; record an indeterminate state.
         try {
-          await updateDelivery(invoiceId, {
+          await updateDelivery(invoiceId, kind, {
             status: "unknown",
             error_message: "Network timeout or uncertain submission; review provider before retrying",
           });
