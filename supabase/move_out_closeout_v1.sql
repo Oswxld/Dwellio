@@ -173,6 +173,17 @@ begin
     raise exception 'A non-void processed move-out invoice for this lease is required';
   end if;
 
+  -- A mere invoice of type move_out is not sufficient: require the
+  -- finalized, immutable financial settlement snapshot for this inspection.
+  if not exists (
+    select 1 from public.move_out_settlements ms
+    where ms.invoice_id = v_invoice.id
+      and ms.lease_id = v_lease.id
+      and ms.inspection_id = v_inspection.id
+  ) then
+    raise exception 'The official move-out settlement must be processed before termination';
+  end if;
+
   -- A unit cannot be vacated if another active or reserved tenancy exists.
   if exists (
     select 1
