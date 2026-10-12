@@ -3,6 +3,8 @@ import { Link, useParams } from 'react-router-dom'
 
 import PageSkeleton from '../components/loading/PageSkeleton'
 import BillingServicesPanel from '../features/billing/components/BillingServicesPanel'
+import PropertyInventoryPanel from '../features/properties/components/PropertyInventoryPanel'
+import { fetchPropertyStructure, type PropertyStructure } from '../features/properties/data/propertyStructureRepository'
 import { fetchBillingServicesManagerData } from '../features/billing/data/billingServicesRepository'
 import type { BillingServicesManagerData } from '../features/billing/data/billingServicesRepository'
 import {
@@ -37,6 +39,8 @@ export default function PropertyDetailsPage({ organizationId }: PropertyDetailsP
   const [effectiveFrom, setEffectiveFrom] = useState(nairobiMonthStart)
   const [property, setProperty] = useState<OrganizationProperty | null>(null)
   const [managerData, setManagerData] = useState<BillingServicesManagerData | null>(null)
+  const [structure, setStructure] = useState<PropertyStructure | null>(null)
+  const [serviceVersion, setServiceVersion] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [retryKey, setRetryKey] = useState(0)
@@ -59,14 +63,19 @@ export default function PropertyDetailsPage({ organizationId }: PropertyDetailsP
 
         // Fetch the service data for this exact effective date before
         // removing the page skeleton, so the service list does not flash.
-        const services = await fetchBillingServicesManagerData(propertyId, effectiveFrom)
+        const [services, propertyStructure] = await Promise.all([
+          fetchBillingServicesManagerData(propertyId, effectiveFrom),
+          fetchPropertyStructure(propertyId),
+        ])
         if (cancelled) return
         setProperty(selected)
         setManagerData(services)
+        setStructure(propertyStructure)
       } catch (caught) {
         if (cancelled) return
         setError(caught instanceof Error ? caught.message : 'Unable to load this property.')
         setManagerData(null)
+        setStructure(null)
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -78,7 +87,7 @@ export default function PropertyDetailsPage({ organizationId }: PropertyDetailsP
 
   if (loading) return <PageSkeleton variant="billing" />
 
-  if (error || !property || !managerData) {
+  if (error || !property || !managerData || !structure) {
     return (
       <div className="min-h-full bg-[#edfdf3] px-4 py-8 sm:px-6">
         <div className="mx-auto max-w-5xl">
@@ -100,11 +109,17 @@ export default function PropertyDetailsPage({ organizationId }: PropertyDetailsP
   return (
     <div className="min-h-full bg-[#edfdf3] px-4 py-6 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-[1450px] space-y-5">
-        <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs font-semibold">
-          <Link to="/properties" className="text-[#1e6a59] hover:underline">Properties</Link>
-          <span className="material-symbols-outlined text-[14px] text-[#9aaba1]">chevron_right</span>
-          <span className="truncate text-[#424845]">{property.name}</span>
-        </nav>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs font-semibold">
+            <Link to="/properties" className="text-[#1e6a59] hover:underline">Properties</Link>
+            <span className="material-symbols-outlined text-[14px] text-[#9aaba1]">chevron_right</span>
+            <span className="truncate text-[#424845]">{property.name}</span>
+          </nav>
+          <Link to="/properties" className="inline-flex items-center gap-1 rounded-xl border border-[#dcece2] bg-white px-4 py-2 text-xs font-semibold text-[#1e6a59] shadow-sm hover:bg-[#e7f7ee]">
+            <span className="material-symbols-outlined text-[18px]">arrow_back</span>
+            Back to properties
+          </Link>
+        </div>
 
         <header className="rounded-2xl border border-[#dcece2] bg-white p-6 shadow-[0_14px_40px_rgba(16,33,28,0.05)] sm:p-7">
           <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
@@ -138,6 +153,17 @@ export default function PropertyDetailsPage({ organizationId }: PropertyDetailsP
           </div>
         </header>
 
+        <PropertyInventoryPanel
+          key={property.id}
+          propertyId={property.id}
+          initialData={structure}
+          onUnitAdded={async () => {
+            const updated = await fetchBillingServicesManagerData(property.id, effectiveFrom)
+            setManagerData(updated)
+            setServiceVersion(value => value + 1)
+          }}
+        />
+
         <section className="flex flex-col gap-4 rounded-2xl border border-[#dcece2] bg-white px-5 py-4 shadow-[0_10px_28px_rgba(16,33,28,0.04)] sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#1e6a59]">Billing service configuration</div>
@@ -162,7 +188,7 @@ export default function PropertyDetailsPage({ organizationId }: PropertyDetailsP
         </section>
 
         <BillingServicesPanel
-          key={`${property.id}:${effectiveFrom}`}
+          key={`${property.id}:${effectiveFrom}:${serviceVersion}`}
           propertyId={property.id}
           effectiveFrom={effectiveFrom}
           effectiveDate={effectiveFrom}
