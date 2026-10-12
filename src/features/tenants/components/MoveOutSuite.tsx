@@ -267,8 +267,8 @@ export default function MoveOutSuite({organizationId,profile,lease,onRefresh}:Pr
           <strong className="text-xl text-[#10211c] tabular-nums">{money(subtotal)}</strong>
         </div>
         <div className="flex justify-end gap-3 mt-5 flex-wrap">
-          {inspection && !complete && <button disabled={busy||charges.length===0} className="ts-button ts-button--secondary" onClick={()=>{
-            if(window.confirm('Complete inspection? You will no longer be able to edit these charges.'))
+          {inspection && !complete && <button disabled={busy} className="ts-button ts-button--secondary" onClick={()=>{
+            if(window.confirm('Complete inspection? You will no longer be able to edit these charges. Zero charges are allowed when no damage is found.'))
               void mutation(()=>updateMoveOutInspection(inspection.id,{status:'completed'}),'Inspection marked completed.')
           }}><Icon name="verified"/> Complete inspection</button>}
           <button className="ts-button ts-button--primary" disabled={!inspection} onClick={()=>setStep(3)}>Review settlement <Icon name="arrow_forward"/></button>
