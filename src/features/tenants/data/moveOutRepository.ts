@@ -117,3 +117,22 @@ export async function removeMoveOutCharge(id: string) {
   const { error } = await supabase.from('move_out_inspection_bills').delete().eq('id', id)
   if (error) throw error
 }
+
+export async function finalizeMoveOut(
+  leaseId: string,
+  finalInvoiceId: string,
+  moveOutDate: string,
+): Promise<{ status: string; unit_status: string }> {
+  const { data, error } = await supabase.rpc('finalize_move_out', {
+    p_lease_id: leaseId,
+    p_invoice_id: finalInvoiceId,
+    p_move_out_date: moveOutDate,
+    p_keys_returned: true,
+    p_unit_vacated: true,
+  })
+  if (error) throw error
+  if (!data || data.status !== 'terminated' || data.unit_status !== 'vacant') {
+    throw new Error('The move-out closeout did not return a verified termination result.')
+  }
+  return data
+}
