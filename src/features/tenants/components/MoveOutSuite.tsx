@@ -465,7 +465,7 @@ export default function MoveOutSuite({organizationId,profile,lease,onRefresh}:Pr
             onClick={()=>setSmsConfirmation(true)}>
             <Icon name="send"/> {workspace?.smsDelivery?.status==='failed'?'Retry failed SMS':'Send finalized SMS'}
           </button>
-          {workspace?.smsDelivery && <Chip>{`SMS: ${workspace.smsDelivery.status} · attempt ${workspace.smsDelivery.attempt_count}`}</Chip>
+          {workspace?.smsDelivery && <Chip>{`SMS: ${workspace.smsDelivery.status} · attempt ${workspace.smsDelivery.attempt_count}`}</Chip>}
           <button className="ts-button ts-button--secondary" onClick={()=>setStep(7)}>Continue to closeout <Icon name="arrow_forward"/></button>
         </div>
       </Panel>}
