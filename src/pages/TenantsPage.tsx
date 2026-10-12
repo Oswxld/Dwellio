@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 
 import PageSkeleton from '../components/loading/PageSkeleton'
 import {
@@ -96,7 +96,6 @@ function DetailField({ label, value }: { label: string; value: string }) {
 }
 
 export default function TenantsPage({ organizationId }: Props) {
-  const navigate = useNavigate()
   const { tenantId } = useParams<{ tenantId: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
   const [data, setData] = useState<TenantDirectoryData | null>(null)
