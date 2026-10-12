@@ -3,6 +3,7 @@ import type { TenantLease, TenantProfile } from '../data/tenantManagementReposit
 import {
   addMoveOutCharge, beginMoveOutInspection, editMoveOutCharge,
   fetchMoveOutWorkspace, removeMoveOutCharge, updateMoveOutInspection, finalizeMoveOut,
+  processMoveOutInvoice, sendMoveOutInvoiceSms,
   type MoveOutCharge, type MoveOutWorkspace,
 } from '../data/moveOutRepository'
 import { Icon, dateLabel, initials, money, kenyaDate, Status } from './tenantUi'
@@ -63,6 +64,7 @@ export default function MoveOutSuite({organizationId,profile,lease,onRefresh}:Pr
   const [vacated,setVacated] = useState(false)
   const [confirmedDate,setConfirmedDate] = useState(kenyaDate())
   const [closeConfirmation,setCloseConfirmation] = useState(false)
+  const [smsConfirmation,setSmsConfirmation] = useState(false)
 
   const refresh = useCallback(() => setRevision(v => v+1),[])
   useEffect(() => {
@@ -86,6 +88,12 @@ export default function MoveOutSuite({organizationId,profile,lease,onRefresh}:Pr
   const inspection = workspace?.inspection ?? null
   const charges = workspace?.charges ?? []
   const subtotal = useMemo(() => charges.reduce((sum,c)=>sum+c.amount,0),[charges])
+  const settlement = workspace?.settlement ?? null
+  const arrearSources = (workspace?.arrearSources ?? []).map(row => ({
+    invoiceNumber: profile.invoices.find(invoice => invoice.id === row.source_invoice_id)?.invoice_number
+      ?? row.source_invoice_id.slice(0,8),
+    amount: row.amount,
+  }))
   // Indicative only. The actual settlement must come from the server-side
   // invoice and payment ledger at the moment of processing, NOT this screen.
   const priorBalance = profile.balance
@@ -99,7 +107,7 @@ export default function MoveOutSuite({organizationId,profile,lease,onRefresh}:Pr
   const finalInvoice = profile.invoices.find(i =>
     i.lease_id === lease.id && i.invoice_type === 'move_out' && i.status !== 'void',
   ) ?? null
-  const actionsNotReady = 'Final invoice processing requires the server-side settlement RPC to write a verified invoice, its itemized lines, debt-source references and deposit application atomically. This financial backend is not deployed yet; no balances or lease records have been modified.'
+  const financialReady = !!settlement && !!finalInvoice
 
   async function mutation(run:()=>Promise<void>,message:string) {
     setBusy(true);setError('')
@@ -135,6 +143,34 @@ export default function MoveOutSuite({organizationId,profile,lease,onRefresh}:Pr
     }catch(e){setError(e instanceof Error?e.message:'Could not save charge.')}
     finally{setBusy(false)}
   }
+  async function processInvoice() {
+    if (!inspection || !complete || !ack || busy || settlement) return
+    setBusy(true);setError('')
+    try {
+      const result = await processMoveOutInvoice(inspection.id)
+      setNotice(`Final invoice ${result.invoice_number ?? 'created'} processed and deposit allocations recorded.`)
+      setStep(5)
+      refresh()
+      onRefresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not process the final invoice.')
+    } finally {setBusy(false)}
+  }
+  async function sendSms() {
+    if (!settlement || busy) return
+    setBusy(true);setError('')
+    try {
+      const result = await sendMoveOutInvoiceSms(settlement.invoice_id)
+      setSmsConfirmation(false)
+      setNotice(result.status === 'accepted'
+        ? 'Full move-out statement accepted by SMS provider; handset delivery is not yet confirmed.'
+        : `SMS status: ${result.status}. ${result.reason ?? ''}`)
+      refresh()
+    } catch(e) {
+      setError(e instanceof Error ? e.message : 'Unable to send move-out statement.')
+      setSmsConfirmation(false)
+    } finally {setBusy(false)}
+  }
   async function closeout() {
     if (!finalInvoice || !complete || !keysReturned || !vacated || busy) return
     setBusy(true);setError('')
@@ -149,18 +185,20 @@ export default function MoveOutSuite({organizationId,profile,lease,onRefresh}:Pr
   }
 
   const doc = {
-    invoiceNumber: 'DRAFT · Not issued',
+    invoiceNumber: finalInvoice?.invoice_number ?? 'DRAFT - Not issued',
+    final: financialReady,
+    arrearSources,
     tenantName: profile.tenant.full_name,
     phone: profile.tenant.phone,
     property: lease.propertyName,
     unit: lease.unitName,
     date: inspection?.inspected_at ?? inspectionDate,
     charges,
-    previousArrears: priorBalance,
-    deposit: agreedDeposit,
-    applied,
-    refundable: refund,
-    payable,
+    previousArrears: settlement?.arrears_total ?? priorBalance,
+    deposit: settlement?.deposit_held ?? agreedDeposit,
+    applied: settlement?.deposit_applied ?? applied,
+    refundable: settlement?.deposit_refundable ?? refund,
+    payable: settlement?.tenant_payable ?? payable,
   }
 
   if(loading)return <Panel><p className="text-sm text-[#737875]">Loading inspection workspace…</p></Panel>
@@ -342,7 +380,9 @@ export default function MoveOutSuite({organizationId,profile,lease,onRefresh}:Pr
           <div className="ts-detail"><div className="ts-detail-label">Deposit</div><div className="ts-detail-value">{money(agreedDeposit)}</div></div>
         </div>
         <div className="ts-soft-notice"><Icon name="shield"/>
-          {actionsNotReady}
+          {settlement
+            ? 'An official invoice and deposit settlement have been recorded. The financial figures are locked.'
+            : 'Processing uses your server-side invoices, payment allocations and actual security deposit. The operation is atomic and refuses unreconciled balances. Verify the SQL migrations are installed before proceeding.'}
         </div>
         <label className="text-[12px] mt-5 flex items-start gap-3 p-4 rounded-xl bg-[#edf8f0]">
           <input type="checkbox" checked={ack} onChange={e=>setAck(e.target.checked)}/>
@@ -350,19 +390,23 @@ export default function MoveOutSuite({organizationId,profile,lease,onRefresh}:Pr
         </label>
         <div className="flex flex-wrap gap-3 justify-end mt-5">
           <button type="button" className="ts-button ts-button--secondary" onClick={()=>setStep(3)}>Back to settlement</button>
-          <button type="button" className="ts-button ts-button--primary" disabled title={actionsNotReady}>
-            <Icon name="verified"/> Process final invoice — awaiting backend
+          <button type="button" className="ts-button ts-button--primary"
+            disabled={busy || !complete || !ack || !!settlement}
+            onClick={()=>void processInvoice()}>
+            <Icon name="verified"/> {busy?'Processing…':settlement?'Invoice processed':'Confirm & Process Invoice'}
           </button>
         </div>
       </Panel>}
 
       {step===5 && <div className="space-y-5">
         <Panel>
-          <Heading icon="article" title="Final settlement statement" subtitle="A printable, clearly marked draft preview. Official issuance requires backend processing."/>
-          <div className="rounded-xl bg-[#fff7df] p-3 text-[12px] font-extrabold text-[#795e13] mb-4">DRAFT — NOT A FINAL INVOICE</div>
+          <Heading icon="article" title="Final settlement statement" subtitle={financialReady?'Official settlement from your finalized invoice.':'Draft preview until the final invoice has been processed.'}/>
+          <div className={`rounded-xl p-3 text-[12px] font-extrabold mb-4 ${financialReady?'bg-[#e2f2e8] text-[#1e6a59]':'bg-[#fff7df] text-[#795e13]'}`}>
+            {financialReady?`FINALIZED · ${finalInvoice?.invoice_number}`:'DRAFT — NOT A FINAL INVOICE'}
+          </div>
           <div className="flex flex-wrap justify-between gap-4 border-b border-[#dcece2] pb-5">
             <div><h3 className="font-['Newsreader'] text-3xl text-[#10211c]">Dwellio</h3><p className="text-[12px] text-[#737875]">{lease.propertyName}</p></div>
-            <div className="text-right"><p className="ts-eyebrow">Move-out statement preview</p><strong className="text-[12px]">Not issued</strong>
+            <div className="text-right"><p className="ts-eyebrow">Move-out settlement statement</p><strong className="text-[12px]">{financialReady?finalInvoice?.invoice_number:'Not issued'}</strong>
               <p className="text-[11px] text-[#737875]">{dateLabel(inspection?.inspected_at??inspectionDate)}</p></div>
           </div>
           <div className="mt-5 grid sm:grid-cols-2 gap-4">
@@ -371,18 +415,19 @@ export default function MoveOutSuite({organizationId,profile,lease,onRefresh}:Pr
           </div>
           <div className="mt-6">{charges.map(c=><AmountRow key={c.id} label={c.title+(c.description?` — ${c.description}`:'')} value={c.amount}/>)}
             <AmountRow label="Inspection charges" value={subtotal} strong/>
-            <AmountRow label="Indicative previous arrears" value={priorBalance}/>
-            <AmountRow label="Agreed security deposit" value={agreedDeposit}/>
-            <AmountRow label="Indicative deposit applied" value={applied}/>
-            <AmountRow label="Indicative amount payable" value={payable}/>
-            <AmountRow label="Indicative deposit refund" value={refund}/>
+            {arrearSources.map(src=><AmountRow key={src.invoiceNumber} label={`Unpaid source: ${src.invoiceNumber}`} value={src.amount}/>)}
+            <AmountRow label="Previous arrears" value={doc.previousArrears}/>
+            <AmountRow label="Security deposit" value={doc.deposit}/>
+            <AmountRow label="Deposit applied" value={doc.applied}/>
+            <AmountRow label="Tenant payable" value={doc.payable}/>
+            <AmountRow label="Deposit refundable (manual)" value={doc.refundable}/>
           </div>
         </Panel>
         <div className="flex flex-wrap gap-3 justify-end">
           <button type="button" className="ts-button ts-button--secondary"
-            onClick={()=>printMoveOutDraft(doc)}><Icon name="print"/> Print draft</button>
+            onClick={()=>printMoveOutDraft(doc)}><Icon name="print"/> {financialReady?'Print invoice':'Print draft'}</button>
           <button type="button" className="ts-button ts-button--primary"
-            onClick={()=>downloadMoveOutDraftPdf(doc)}><Icon name="download"/> Download draft PDF</button>
+            onClick={()=>downloadMoveOutDraftPdf(doc)}><Icon name="download"/> {financialReady?'Download invoice PDF':'Download draft PDF'}</button>
           <button type="button" className="ts-button ts-button--secondary" onClick={()=>setStep(6)}>SMS preview <Icon name="arrow_forward"/></button>
         </div>
       </div>}
@@ -395,26 +440,32 @@ export default function MoveOutSuite({organizationId,profile,lease,onRefresh}:Pr
         </div>
         <div className="rounded-xl bg-[#edf8f0] p-5 whitespace-pre-wrap font-mono text-[11px] leading-6 text-[#304c3e]">
           {[
-            'DWELLIO · MOVE-OUT SETTLEMENT DRAFT (NOT SENT)',
+            financialReady?'DWELLIO FINAL MOVE-OUT SETTLEMENT':'DWELLIO · MOVE-OUT SETTLEMENT DRAFT (NOT SENT)',
+            `Invoice: ${doc.invoiceNumber}`,
             `Tenant: ${profile.tenant.full_name}`,
             `Property: ${lease.propertyName}, Unit: ${lease.unitName}`,
             ...charges.map(c=>`Charge: ${c.title} — ${money(c.amount)}${c.description?` (${c.description})`:''}`),
             `Inspection total: ${money(subtotal)}`,
-            `Indicative previous arrears: ${money(priorBalance)}`,
-            `Agreed deposit: ${money(agreedDeposit)}`,
-            `Indicative applied: ${money(applied)}`,
-            `Indicative payable: ${money(payable)}`,
-            `Indicative refundable: ${money(refund)}`,
+            ...arrearSources.map(src=>`Unpaid invoice ${src.invoiceNumber}: ${money(src.amount)}`),
+            `Historical arrears: ${money(doc.previousArrears)}`,
+            `Deposit held: ${money(doc.deposit)}`,
+            `Deposit applied: ${money(doc.applied)}`,
+            `Amount owed: ${money(doc.payable)}`,
+            `Deposit refundable: ${money(doc.refundable)}`,
             'Refunds handled manually. No tenant portal link.',
           ].join('\n')}
         </div>
         <div className="ts-soft-notice"><Icon name="info"/>
-          The actual SMS must be composed server-side from the finalized invoice, including every charge, arrears source, deposit application and net result. SMS sending cannot happen before safe invoice processing is implemented.
+          The actual message is generated server-side from the finalized settlement snapshot, with itemized inspection charges and original invoice references. There is no portal link. SMS provider acceptance does not guarantee handset delivery.
         </div>
         <div className="flex justify-end gap-3 mt-4">
-          <button className="ts-button ts-button--primary" disabled title="No finalized move-out invoice or SMS claim exists yet">
-            <Icon name="send"/> Send finalized SMS — awaiting backend
+          <button className="ts-button ts-button--primary"
+            disabled={!financialReady || busy || (!!workspace?.smsDelivery && workspace.smsDelivery.status!=='failed')}
+            title={!financialReady?'Process the official settlement first':'Only failed SMS submissions may be retried'}
+            onClick={()=>setSmsConfirmation(true)}>
+            <Icon name="send"/> {workspace?.smsDelivery?.status==='failed'?'Retry failed SMS':'Send finalized SMS'}
           </button>
+          {workspace?.smsDelivery && <Chip>{`SMS: ${workspace.smsDelivery.status} · attempt ${workspace.smsDelivery.attempt_count}`}</Chip>
           <button className="ts-button ts-button--secondary" onClick={()=>setStep(7)}>Continue to closeout <Icon name="arrow_forward"/></button>
         </div>
       </Panel>}
@@ -449,6 +500,26 @@ export default function MoveOutSuite({organizationId,profile,lease,onRefresh}:Pr
         </div>
       </Panel>}
 
+      {smsConfirmation && <div className="ts-modal-shade">
+        <div className="ts-modal" role="dialog" aria-modal="true" aria-label="Confirm full statement SMS">
+          <div className="ts-modal-heading"><span className="ts-card-icon"><Icon name="sms"/></span>
+            <div><p className="ts-eyebrow">Full statement SMS</p><h2>Send final move-out statement?</h2></div>
+            <button type="button" className="ts-icon-button" disabled={busy}
+              onClick={()=>setSmsConfirmation(false)} aria-label="Close"><Icon name="close"/></button>
+          </div>
+          <p className="ts-muted-note">
+            Send the entire itemized settlement to {profile.tenant.full_name} at {profile.tenant.phone}.
+            No invoice portal link is included. All amounts come from the finalized backend snapshot.
+          </p>
+          <div className="ts-modal-actions">
+            <button className="ts-button ts-button--secondary" disabled={busy}
+              onClick={()=>setSmsConfirmation(false)}>Cancel</button>
+            <button className="ts-button ts-button--primary" disabled={busy}
+              onClick={()=>void sendSms()}>{busy?'Sending…':'Confirm SMS send'}</button>
+          </div>
+        </div>
+      </div>}
+      
       {closeConfirmation && <div className="ts-modal-shade">
         <div className="ts-modal" role="dialog" aria-modal="true" aria-label="Confirm tenancy termination">
           <div className="ts-modal-heading"><span className="ts-card-icon"><Icon name="lock_reset"/></span>
