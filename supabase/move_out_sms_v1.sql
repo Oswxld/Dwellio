@@ -152,7 +152,15 @@ begin
 
   select coalesce(string_agg(
     ' - ' || orig.invoice_number || ': KSh ' ||
-      to_char(a.amount,'FM9999999990.00'),
+      to_char(a.amount,'FM9999999990.00') ||
+      coalesce(
+        (select ' (' || string_agg(il.description,
+          '; ' order by il.created_at, il.id) || ')'
+         from public.invoice_lines il
+         where il.invoice_id = orig.id and il.is_receivable = true
+           and nullif(btrim(il.description),'') is not null),
+        ''
+      ),
     E'\n' order by orig.created_at,orig.id), '(no previous arrears)')
     into v_arrears
     from public.move_out_settlement_arrears a
