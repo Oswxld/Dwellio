@@ -48,6 +48,7 @@ export type TenantInvoice = {
   outstanding_amount: number
   status: string
   due_date: string | null
+  carriedFrom: Array<{ invoice_number: string; amount: number }>
 }
 
 export type TenantMoveOutRequest = {
@@ -114,9 +115,14 @@ type Line = { id: string; invoice_id: string }
 type Source = { invoice_line_id: string; source_invoice_id: string; amount: number | string }
 
 type BalanceResult = { amount: number | null; issue: string | null }
+type LedgerTotals = {
+  results: Map<string, BalanceResult>
+  sourcesByInvoice: Map<string, Array<{ invoice_number: string; amount: number }>>
+}
 
-async function computeLedgerBalances(rawInvoices: RawInvoice[]): Promise<Map<string, BalanceResult>> {
+async function computeLedgerBalances(rawInvoices: RawInvoice[]): Promise<LedgerTotals> {
   const results = new Map<string, BalanceResult>()
+  const sourcesByInvoice = new Map<string, Array<{ invoice_number: string; amount: number }>>()
   const active = rawInvoices.filter(invoice => invoice.status !== 'void')
   const invoiceById = new Map(active.map(invoice => [invoice.id, invoice]))
   const invoiceIds = active.map(invoice => invoice.id)
@@ -162,6 +168,11 @@ async function computeLedgerBalances(rawInvoices: RawInvoice[]): Promise<Map<str
     }
 
     rolledByInvoice.set(destination.id, (rolledByInvoice.get(destination.id) ?? 0) + amount)
+    const originNumber = rawInvoices.find(invoice => invoice.id === source.source_invoice_id)?.invoice_number
+      ?? 'Source invoice'
+    const list = sourcesByInvoice.get(destination.id) ?? []
+    list.push({ invoice_number: originNumber, amount })
+    sourcesByInvoice.set(destination.id, list)
 
     // Only subtract a copied balance when its original non-void invoice
     // is also included in the sum; void invoices aren't counted at all.
@@ -209,7 +220,7 @@ async function computeLedgerBalances(rawInvoices: RawInvoice[]): Promise<Map<str
       results.set(tenantId, { amount: Math.max(net, 0), issue: null })
     }
   }
-  return results
+  return { results, sourcesByInvoice }
 }
 
 export async function fetchTenantDirectory(organizationId: string): Promise<TenantDirectoryData> {
@@ -309,7 +320,7 @@ export async function fetchTenantDirectory(organizationId: string): Promise<Tena
     }
   })
 
-  const balances = await computeLedgerBalances(rawInvoices)
+  const { results: balances, sourcesByInvoice } = await computeLedgerBalances(rawInvoices)
   const requests = (requestResult.data ?? []) as TenantMoveOutRequest[]
 
   return {
@@ -325,6 +336,7 @@ export async function fetchTenantDirectory(organizationId: string): Promise<Tena
           total_payable: numberValue(invoice.total_payable),
           paid_amount: numberValue(invoice.paid_amount),
           outstanding_amount: numberValue(invoice.outstanding_amount),
+          carriedFrom: sourcesByInvoice.get(invoice.id) ?? [],
         })),
       contacts: (contactResult.data ?? []).filter(contact => contact.tenant_id === tenant.id),
       requests: requests.filter(request => request.tenant_id === tenant.id),
@@ -349,4 +361,30 @@ export async function decideMoveOutRequest(
   })
   if (error) throw error
   return data
+}
+
+
+export async function updateTenantContactDetails(
+  organizationId: string,
+  tenantId: string,
+  input: { full_name: string; email: string; phone: string },
+): Promise<void> {
+  const fullName = input.full_name.trim()
+  const email = input.email.trim().toLowerCase()
+  const phone = input.phone.trim()
+  if (fullName.length < 2 || fullName.length > 150) throw new Error('Enter a valid full name.')
+  if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error('Enter a valid email address.')
+  if (phone.length < 7 || phone.length > 30) throw new Error('Enter a valid phone number.')
+
+  const { data, error } = await supabase
+    .from('tenants')
+    .update({ full_name: fullName, email, phone })
+    .eq('id', tenantId)
+    .eq('organization_id', organizationId)
+    .is('deleted_at', null)
+    .select('id')
+  if (error) throw error
+  if (!data?.length) {
+    throw new Error('Tenant details could not be updated. Check your organization permissions.')
+  }
 }
