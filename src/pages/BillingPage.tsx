@@ -2,11 +2,15 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react'
 
 import PageSkeleton from '../components/loading/PageSkeleton'
 import BillingReadingsPanel from '../features/billing/components/BillingReadingsPanel'
+import { fetchBillingReadingsWorkspace } from '../features/billing/data/billingReadingsRepository'
+import { fetchBillingServicesManagerData } from '../features/billing/data/billingServicesRepository'
+import type { BillingServicesManagerData } from '../features/billing/data/billingServicesRepository'
 import BillingServicesPanel from '../features/billing/components/BillingServicesPanel'
 import InvoiceSendPanel from '../features/billing/components/InvoiceSendPanel'
 import { fetchInvoiceSmsDeliveries } from '../features/billing/data/invoiceDeliveryRepository'
@@ -48,6 +52,38 @@ type BillingStep =
   | 'review'
   | 'invoices'
   | 'send'
+
+function localMonthKey(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+}
+
+function propertyStartMonth(createdAt: string) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Africa/Nairobi',
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(new Date(createdAt))
+  const year = parts.find(part => part.type === 'year')?.value
+  const month = parts.find(part => part.type === 'month')?.value
+  return year && month ? `${year}-${month}` : createdAt.slice(0, 7)
+}
+
+function firstDay(month: string) {
+  return `${month}-01`
+}
+
+function monthLabel(month: string) {
+  return new Date(`${month}-01T12:00:00`).toLocaleDateString('en-KE', {
+    month: 'long',
+    year: 'numeric',
+  })
+}
+
+function moveMonth(month: string, offset: number) {
+  const [year, index] = month.split('-').map(Number)
+  const date = new Date(year, index - 1 + offset, 1)
+  return localMonthKey(date)
+}
 
 type ReadingCorrectionTarget = {
   chargeDescription: string
@@ -139,6 +175,11 @@ export default function BillingPage() {
   const [propertyId, setPropertyId] = useState('')
   const [cycles, setCycles] = useState<BillingCycle[]>([])
   const [cycleId, setCycleId] = useState('')
+  const [selectedMonth, setSelectedMonth] = useState(localMonthKey)
+  const [initialServices, setInitialServices] = useState<BillingServicesManagerData | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
+  const loadId = useRef(0)
+  const activeSelection = useRef('')
   const [dashboard, setDashboard] = useState(emptyDashboard)
   const [readings, setReadings] = useState(emptyReadings)
   const [step, setStep] = useState<BillingStep>('services')
@@ -163,7 +204,10 @@ export default function BillingPage() {
   const [newReadingValue, setNewReadingValue] = useState('')
   const [savingReadingCorrection, setSavingReadingCorrection] = useState(false)
   const [error, setError] = useState('')
+  const [loadFailed, setLoadFailed] = useState(false)
   const [success, setSuccess] = useState('')
+
+  activeSelection.current = `${propertyId}|${selectedMonth}`
 
   const property = useMemo(
     () => properties.find(item => item.id === propertyId) ?? null,
@@ -171,9 +215,17 @@ export default function BillingPage() {
   )
 
   const cycle = useMemo(
-    () => cycles.find(item => item.id === cycleId) ?? null,
-    [cycles, cycleId],
+    () => cycles.find(item => item.id === cycleId && item.period_start.startsWith(selectedMonth)) ?? null,
+    [cycles, cycleId, selectedMonth],
   )
+
+  const currentMonth = localMonthKey()
+  const earliestMonth = property?.created_at
+    ? propertyStartMonth(property.created_at)
+    : currentMonth
+  const isPastMonth = selectedMonth < currentMonth
+  const canGoBack = selectedMonth > earliestMonth
+  const canCreateCycle = !isPastMonth && selectedMonth >= earliestMonth
 
   const currentStepNumber =
     steps.find(item => item.id === step)?.number ?? 1
@@ -231,72 +283,115 @@ export default function BillingPage() {
     )
 
   useEffect(() => {
+    let cancelled = false
     async function loadProperties() {
       try {
-        setLoading(true)
-        setError('')
-
         const rows = await fetchBillingProperties()
+        if (cancelled) return
         setProperties(rows)
         setPropertyId(rows[0]?.id ?? '')
+        if (rows.length === 0) setLoading(false)
       } catch (loadError) {
+        if (cancelled) return
         console.error('[BillingPage] property load failed', loadError)
         setError(errorMessage(loadError, 'Could not load billing properties.'))
-      } finally {
+        setLoadFailed(true)
         setLoading(false)
       }
     }
-
     void loadProperties()
+    return () => { cancelled = true; loadId.current += 1 }
   }, [])
 
   useEffect(() => {
-    if (!property) {
-      setCycles([])
-      setCycleId('')
-      setDashboard(emptyDashboard)
+    if (!property) return
+    // Property creation is the earliest available billing month.
+    const earliest = property.created_at.slice(0, 7)
+    if (selectedMonth < earliest) {
+      setSelectedMonth(earliest)
       return
     }
 
-    async function loadPropertyCycles() {
+    const request = ++loadId.current
+    let cancelled = false
+    async function initializeBilling() {
+      setLoading(true)
+      setLoadFailed(false)
+      setError('')
+      setSuccess('')
+      setSelectedDraft(null)
+      setSelectedInvoice(null)
+      setGenerationResult(null)
+      setFinalizedInvoices([])
+      setInvoiceSmsDeliveries([])
+      setSendInitialInvoiceId(null)
+      setInvoiceSearch('')
+      setInvoiceStatusFilter('all')
+      setReadings(emptyReadings)
+      setInitialServices(null)
+      setCycleId('')
+      setDashboard(emptyDashboard)
+
       try {
-        setLoading(true)
-        setError('')
-        setSuccess('')
-        setGenerationResult(null)
-        setSelectedDraft(null)
-        setSelectedInvoice(null)
-        setFinalizedInvoices([])
-        setInvoiceSmsDeliveries([])
-        setSendInitialInvoiceId(null)
-        setInvoiceSearch('')
-        setInvoiceStatusFilter('all')
-
         const rows = await fetchBillingCycles(property!.id)
+        if (cancelled || request !== loadId.current) return
+        const found = rows.find(item => item.period_start.startsWith(selectedMonth))
+        if (!found) {
+          setCycles(rows)
+          setStep('services')
+          return
+        }
+
+        // Wait for ALL information needed to identify and render the correct stage.
+        const summary = await fetchBillingDashboard(property!.id, found)
+        if (cancelled || request !== loadId.current) return
+
+        let services: BillingServicesManagerData | null = null
+        let readingsWorkspace = emptyReadings
+        let invoices: FinalizedInvoiceRow[] = []
+        let nextStep: BillingStep = 'services'
+
+        if (summary.invoiceCount > 0) {
+          nextStep = 'invoices'
+          invoices = await fetchFinalizedInvoices(found, summary.drafts)
+        } else if (summary.draftCount > 0) {
+          nextStep = 'review'
+        } else if (summary.services.length > 0) {
+          readingsWorkspace = await fetchBillingReadingsWorkspace(property!.id, found)
+          nextStep = readingsWorkspace.complete ? 'generate' : 'readings'
+        } else {
+          services = await fetchBillingServicesManagerData(property!.id, found.period_end)
+        }
+
+        if (cancelled || request !== loadId.current) return
         setCycles(rows)
-
-        const currentMonth = new Date().toISOString().slice(0, 7)
-        const current = rows.find(item => item.period_start.startsWith(currentMonth))
-
-        setCycleId((current ?? rows[0])?.id ?? '')
+        setCycleId(found.id)
+        setDashboard(summary)
+        setStep(nextStep)
+        setReadings(readingsWorkspace)
+        setInitialServices(services)
+        setFinalizedInvoices(invoices)
       } catch (loadError) {
-        console.error('[BillingPage] cycle load failed', loadError)
-        setError(errorMessage(loadError, 'Could not load billing cycles.'))
+        if (cancelled || request !== loadId.current) return
+        console.error('[BillingPage] billing initialization failed', loadError)
+        setError(errorMessage(loadError, 'Could not initialize this billing month.'))
+        setLoadFailed(true)
       } finally {
-        setLoading(false)
+        if (!cancelled && request === loadId.current) setLoading(false)
       }
     }
 
-    void loadPropertyCycles()
-  }, [property])
+    void initializeBilling()
+    return () => { cancelled = true }
+  }, [property, selectedMonth, reloadKey])
 
   const refreshDashboard = useCallback(async () => {
     if (!property || !cycle) return
-
+    const requestSelection = `${property.id}|${selectedMonth}`
     try {
       const next = await fetchBillingDashboard(property.id, cycle)
+      if (activeSelection.current !== requestSelection) return
       setDashboard(next)
-
       if (next.invoiceCount > 0) {
         setStep('invoices')
       } else if (next.draftCount > 0) {
@@ -306,35 +401,26 @@ export default function BillingPage() {
       console.error('[BillingPage] dashboard refresh failed', loadError)
       setError(errorMessage(loadError, 'Could not refresh the billing cycle.'))
     }
-  }, [property, cycle])
+  }, [property, cycle, selectedMonth])
 
   useEffect(() => {
-    if (!cycle || !property) {
-      setDashboard(emptyDashboard)
-      return
-    }
+    if (loading || step !== 'invoices' || !cycle || dashboard.invoiceCount === 0 || finalizedInvoices.length > 0) return
 
-    void refreshDashboard()
-  }, [cycle, property, refreshDashboard])
-
-  useEffect(() => {
-    if (step !== 'invoices' || !cycle || dashboard.invoiceCount === 0) return
-
+    let cancelled = false
     async function loadInvoices() {
       try {
         setLoadingInvoices(true)
-        setError('')
-        setFinalizedInvoices(await fetchFinalizedInvoices(cycle!, dashboard.drafts))
+        const rows = await fetchFinalizedInvoices(cycle!, dashboard.drafts)
+        if (!cancelled) setFinalizedInvoices(rows)
       } catch (invoiceError) {
-        console.error('[BillingPage] finalized invoice load failed', invoiceError)
-        setError(errorMessage(invoiceError, 'Could not load finalized invoices.'))
+        if (!cancelled) setError(errorMessage(invoiceError, 'Could not load finalized invoices.'))
       } finally {
-        setLoadingInvoices(false)
+        if (!cancelled) setLoadingInvoices(false)
       }
     }
-
     void loadInvoices()
-  }, [step, cycle, dashboard.invoiceCount, dashboard.drafts])
+    return () => { cancelled = true }
+  }, [loading, step, cycle, dashboard.invoiceCount, dashboard.drafts, finalizedInvoices.length])
 
   const refreshInvoiceSmsStatuses = useCallback(async () => {
     const ids = finalizedInvoices.map(invoice => invoice.id)
@@ -364,20 +450,20 @@ export default function BillingPage() {
   }, [])
 
   async function createCycle() {
-    if (!property) return
+    if (!property || !canCreateCycle) return
 
     try {
       setCreatingCycle(true)
       setError('')
       setSuccess('')
 
-      const newCycleId = await createCurrentBillingCycle(property.id)
+      const newCycleId = await createCurrentBillingCycle(property.id, firstDay(selectedMonth))
       const rows = await fetchBillingCycles(property.id)
 
       setCycles(rows)
       setCycleId(newCycleId)
       setStep('services')
-      setSuccess('Billing cycle created. Confirm the property billing configuration before continuing.')
+      setReloadKey(key => key + 1)
     } catch (createError) {
       console.error('[BillingPage] cycle creation failed', createError)
       setError(errorMessage(createError, 'Could not create billing cycle.'))
@@ -667,7 +753,7 @@ export default function BillingPage() {
     setStep(target)
   }
 
-  if (loading && properties.length === 0) {
+  if (loading) {
     return <PageSkeleton variant="billing" />
   }
 
@@ -701,10 +787,35 @@ export default function BillingPage() {
               </select>
             </label>
 
-            {cycle && (
-              <div className="rounded-xl border border-[#c2c8c4]/55 bg-white px-4 py-2 shadow-sm">
-                <span className="block text-[10px] font-semibold uppercase tracking-wide text-[#737875]">Cycle</span>
-                <span className="text-sm font-semibold text-[#111e19]">{cycleLabel(cycle)}</span>
+            {property && (
+              <div className="flex items-center gap-1 rounded-xl border border-[#c2c8c4]/55 bg-white px-2 py-2 shadow-sm">
+                <button
+                  type="button"
+                  aria-label="Previous billing month"
+                  disabled={!canGoBack}
+                  onClick={() => setSelectedMonth(month => moveMonth(month, -1))}
+                  className="rounded-lg px-2 py-1 font-bold text-[#1e6a59] disabled:opacity-30"
+                >‹</button>
+                <label className="min-w-[145px]">
+                  <span className="block text-[10px] font-semibold uppercase tracking-wide text-[#737875]">Billing month</span>
+                  <input
+                    type="month"
+                    min={earliestMonth}
+                    value={selectedMonth}
+                    onChange={event => {
+                      const next = event.target.value
+                      if (next && next >= earliestMonth) setSelectedMonth(next)
+                    }}
+                    className="w-full bg-transparent text-sm font-semibold text-[#111e19] outline-none"
+                    aria-label="Select billing month"
+                  />
+                </label>
+                <button
+                  type="button"
+                  aria-label="Next billing month"
+                  onClick={() => setSelectedMonth(month => moveMonth(month, 1))}
+                  className="rounded-lg px-2 py-1 font-bold text-[#1e6a59]"
+                >›</button>
               </div>
             )}
           </div>
@@ -722,7 +833,13 @@ export default function BillingPage() {
           </div>
         )}
 
-        {!property ? (
+        {loadFailed ? (
+          <section className="rounded-2xl border border-[#ba1a1a]/20 bg-white p-8 text-center">
+            <h2 className="text-xl font-semibold">Could not load billing information</h2>
+            <p className="mt-2 text-sm text-[#424845]">The selected month could not be loaded. No billing changes were made.</p>
+            <button type="button" className="mt-4 rounded-lg bg-[#1e6a59] px-5 py-2 text-white" onClick={() => setReloadKey(key => key + 1)}>Retry</button>
+          </section>
+        ) : !property ? (
           <section className="rounded-2xl border border-[#c2c8c4]/60 bg-white p-8 text-center shadow-[0_14px_40px_rgba(22,42,35,0.06)]">
             <h2 className="text-xl font-semibold text-[#111e19]">No active property found</h2>
           </section>
@@ -735,13 +852,15 @@ export default function BillingPage() {
               </div>
 
               <h2 className="mt-4 text-2xl font-semibold text-[#111e19]">
-                Create this month&apos;s billing cycle
+                {canCreateCycle ? `Create ${monthLabel(selectedMonth)} billing cycle` : `No billing cycle for ${monthLabel(selectedMonth)}`}
               </h2>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-[#424845]">
-                Creating the cycle opens a draft billing period. Nothing is invoiced or sent to tenants yet.
+                {canCreateCycle
+                  ? 'Creating the cycle opens a draft billing period. Nothing is invoiced or sent to tenants yet.'
+                  : 'This past month has no billing cycle. Past billing cycles cannot be created retroactively.'}
               </p>
 
-              <button
+              {canCreateCycle && <button
                 type="button"
                 onClick={() => void createCycle()}
                 disabled={creatingCycle}
@@ -750,9 +869,46 @@ export default function BillingPage() {
                 <span className="material-symbols-outlined text-[20px]">
                   {creatingCycle ? 'progress_activity' : 'add_circle'}
                 </span>
-                {creatingCycle ? 'Creating billing cycle…' : 'Create billing cycle'}
-              </button>
+                {creatingCycle ? 'Creating billing cycle…' : `Create ${monthLabel(selectedMonth)} billing cycle`}
+              </button>}
             </div>
+          </section>
+        ) : isPastMonth ? (
+          <section className="space-y-5">
+            <div className="rounded-2xl border border-[#c2c8c4]/60 bg-white p-6">
+              <div className="text-xs font-bold uppercase tracking-widest text-[#1e6a59]">Historical billing — view only</div>
+              <h2 className="mt-2 text-2xl font-semibold">{monthLabel(selectedMonth)} billing</h2>
+              <p className="mt-1 text-sm text-[#424845]">{property.name} · {cycle.status.replaceAll('_', ' ')}</p>
+              <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                <Metric label="Drafts" value={String(dashboard.draftCount)} />
+                <Metric label="Approved drafts" value={String(dashboard.approvedCount)} />
+                <Metric label="Finalized invoices" value={String(dashboard.invoiceCount)} />
+              </div>
+            </div>
+            {finalizedInvoices.length > 0 ? (
+              <div className="rounded-2xl bg-white p-5">
+                <h3 className="mb-4 font-semibold">Historical invoices</h3>
+                <div className="space-y-2">
+                  {finalizedInvoices.map(invoice => (
+                    <div key={invoice.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-[#edfdf3] p-4">
+                      <div><div className="font-semibold">{invoice.tenantName} · {invoice.unitName}</div><div className="text-xs text-[#424845]">{invoice.invoice_number} · {invoice.status.replaceAll('_', ' ')}</div></div>
+                      <div className="font-semibold">{money(invoice.total_invoiced)}</div>
+                      <button type="button" className="text-sm font-semibold text-[#1e6a59]" onClick={() => void openFinalizedInvoice(invoice)}>View invoice</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : dashboard.drafts.length > 0 ? (
+              <div className="rounded-2xl bg-white p-5">
+                <h3 className="mb-4 font-semibold">Historical draft records</h3>
+                {dashboard.drafts.map(draft => (
+                  <div key={draft.id} className="flex justify-between gap-3 border-b border-[#e2f2e8] py-3 text-sm">
+                    <span>{draft.tenantName} · {draft.unitName} · {draft.status}</span>
+                    <strong>{money(draft.total_payable)}</strong>
+                  </div>
+                ))}
+              </div>
+            ) : <div className="rounded-2xl bg-white p-6 text-sm text-[#424845]">This historical cycle has no generated invoices or drafts.</div>}
           </section>
         ) : (
           <>
@@ -830,6 +986,7 @@ export default function BillingPage() {
                   effectiveFrom={cycle.period_start}
                   effectiveDate={cycle.period_end}
                   onChanged={refreshDashboard}
+                  initialData={initialServices ?? undefined}
                 />
 
                 <div className="flex justify-end rounded-xl border border-[#c2c8c4]/50 bg-[#e7f7ee] p-4">
@@ -859,6 +1016,7 @@ export default function BillingPage() {
                   propertyId={property.id}
                   cycle={cycle}
                   onCompletionChange={handleReadingsCompletion}
+                  initialData={readings.complete || readings.services.length > 0 ? readings : undefined}
                 />
 
                 <div className="flex flex-col gap-3 rounded-xl border border-[#c2c8c4]/50 bg-[#e7f7ee] p-4 sm:flex-row sm:items-center sm:justify-between">

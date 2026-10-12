@@ -16,6 +16,7 @@ import {
 type BillingReadingsPanelProps = {
   propertyId: string
   cycle: BillingCycle
+  initialData?: BillingReadingsWorkspace
   onCompletionChange: (
     complete: boolean,
     workspace: BillingReadingsWorkspace,
@@ -76,10 +77,11 @@ function serviceStatus(service: UsageBillingServiceReadings) {
 export default function BillingReadingsPanel({
   propertyId,
   cycle,
+  initialData,
   onCompletionChange,
 }: BillingReadingsPanelProps) {
-  const [workspace, setWorkspace] = useState(emptyWorkspace)
-  const [loading, setLoading] = useState(true)
+  const [workspace, setWorkspace] = useState(initialData ?? emptyWorkspace)
+  const [loading, setLoading] = useState(!initialData)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -94,6 +96,13 @@ export default function BillingReadingsPanel({
   )
 
   useEffect(() => {
+    if (initialData) {
+      setWorkspace(initialData)
+      hydrateValues(initialData)
+      setLoading(false)
+      return
+    }
+
     void loadWorkspace()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [propertyId, cycle.id])
