@@ -21,6 +21,10 @@
 
 ## SQL migrations (run in Supabase SQL Editor, in order)
 
+**First:** run the read-only `supabase/MOVE_OUT_PREFLIGHT.sql` and inspect
+its results for the live deposit columns, enum labels, RPC signatures, and
+lease/property organization consistency. It does not alter data.
+
 The existing billing schema, `invoice_lines`, `invoice_line_sources`, `security_deposits`, `deposit_allocations`, `payment_allocations`, `payments`, `refresh_invoice_balance(uuid)` and `apply_deposit_deduction(uuid,uuid,numeric,text)` must already exist.
 
 1. `supabase/move_out_inspections_v1.sql`
