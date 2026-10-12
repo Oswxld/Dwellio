@@ -83,7 +83,7 @@ export default function MoveOutSuite({organizationId,profile,lease,onRefresh}:Pr
         setWorkspace(data)
         setError('')
         if (data.inspection) {
-          setInspectionDate(data.inspection.inspected_at)
+          setInspectionDate(data.inspection.inspection_date?.slice(0,10) ?? kenyaDate())
           setInspectionNotes(data.inspection.notes ?? '')
         }
       })
@@ -199,7 +199,7 @@ export default function MoveOutSuite({organizationId,profile,lease,onRefresh}:Pr
     phone: profile.tenant.phone,
     property: lease.propertyName,
     unit: lease.unitName,
-    date: inspection?.inspected_at ?? inspectionDate,
+    date: inspection?.inspection_date?.slice(0,10) ?? inspectionDate,
     charges,
     previousArrears: settlement?.arrears_total ?? priorBalance,
     deposit: settlement?.deposit_held ?? agreedDeposit,
@@ -217,7 +217,7 @@ export default function MoveOutSuite({organizationId,profile,lease,onRefresh}:Pr
           <h2 className="font-['Newsreader'] text-3xl sm:text-4xl text-[#10211c] mt-2">Move-out inspection <span className="text-[#1e6a59]">& settlement</span></h2>
           <p className="text-[12px] text-[#737875] mt-1">Inspect, itemize, review financial obligations and prepare the final statement.</p>
         </div>
-        <Chip>{complete?'Inspection completed':inspection?'Draft inspection':'Not started'}</Chip>
+        <Chip>{complete?'Inspection completed':inspection?'Pending inspection':'Not started'}</Chip>
       </div>
 
       <Panel>
@@ -414,7 +414,7 @@ export default function MoveOutSuite({organizationId,profile,lease,onRefresh}:Pr
           <div className="flex flex-wrap justify-between gap-4 border-b border-[#dcece2] pb-5">
             <div><h3 className="font-['Newsreader'] text-3xl text-[#10211c]">Dwellio</h3><p className="text-[12px] text-[#737875]">{lease.propertyName}</p></div>
             <div className="text-right"><p className="ts-eyebrow">Move-out settlement statement</p><strong className="text-[12px]">{financialReady?finalInvoice?.invoice_number:'Not issued'}</strong>
-              <p className="text-[11px] text-[#737875]">{dateLabel(inspection?.inspected_at??inspectionDate)}</p></div>
+              <p className="text-[11px] text-[#737875]">{dateLabel(inspection?.inspection_date?.slice(0,10)??inspectionDate)}</p></div>
           </div>
           <div className="mt-5 grid sm:grid-cols-2 gap-4">
             <div><p className="ts-eyebrow">Tenant</p><strong>{profile.tenant.full_name}</strong><p className="text-[12px] text-[#737875]">{profile.tenant.phone}</p></div>
