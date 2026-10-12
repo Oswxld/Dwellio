@@ -42,6 +42,10 @@ const PropertiesPage = lazy(
   () => import('./pages/PropertiesPage'),
 )
 
+const TenantsPage = lazy(
+  () => import('./pages/TenantsPage'),
+)
+
 const PropertyDetailsPage = lazy(
   () => import('./pages/PropertyDetailsPage'),
 )
@@ -292,8 +296,8 @@ export default function App() {
         element={
           <TenantOnboardingPage
             organizationId={organizationId}
-            onCancel={() => navigate('/')}
-            onComplete={() => navigate('/')}
+            onCancel={() => navigate('/tenants')}
+            onComplete={() => navigate('/tenants')}
           />
         }
       />
@@ -318,6 +322,16 @@ export default function App() {
         <Route
           path="billing"
           element={<BillingPage />}
+        />
+
+        <Route
+          path="tenants"
+          element={<TenantsPage organizationId={organizationId} />}
+        />
+
+        <Route
+          path="tenants/:tenantId"
+          element={<TenantsPage organizationId={organizationId} />}
         />
 
         <Route
