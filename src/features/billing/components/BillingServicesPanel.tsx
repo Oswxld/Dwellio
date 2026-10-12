@@ -20,6 +20,7 @@ type BillingServicesPanelProps = {
   effectiveFrom: string
   effectiveDate: string
   onChanged: () => Promise<void>
+  initialData?: BillingServicesManagerData
 }
 
 type ServiceFormState = {
@@ -101,11 +102,12 @@ export default function BillingServicesPanel({
   effectiveFrom,
   effectiveDate,
   onChanged,
+  initialData,
 }: BillingServicesPanelProps) {
   const [data, setData] = useState<BillingServicesManagerData>(
-    emptyManagerData,
+    initialData ?? emptyManagerData,
   )
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!initialData)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -137,6 +139,12 @@ export default function BillingServicesPanel({
   )
 
   useEffect(() => {
+    if (initialData) {
+      setData(initialData)
+      setLoading(false)
+      return
+    }
+
     void loadManagerData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [propertyId, effectiveDate])
