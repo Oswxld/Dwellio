@@ -12,6 +12,28 @@ This feature builds on the Tenants module in PR #39.
 - A full-detail SMS **preview with no portal link**.
 - A secure `finalize_move_out` RPC that terminates the lease and vacates the unit **only after** an actual non-void move-out invoice exists, the inspection is completed, and the staff member confirms keys/physical handover. The RPC refuses conflicting live/reserved leases.
 
+## Corrected database hierarchy and migration recovery
+
+These corrected SQL migrations use the **live** property hierarchy:
+
+`units.floor_id -> floors.building_id -> buildings.property_id -> properties.organization_id`.
+
+`units.property_id` is nullable and only cross-checked if populated. The SQL
+never attempts to read `organization_id` from `units`, `floors`, or `buildings`.
+The `leases` table carries `organization_id`, and the inspection table has its
+**own** `organization_id` column for authorization; this column is added and
+backfilled from the lease if a previous inspection table was created without it.
+
+Both corrected scripts run inside a single SQL transaction, drop/recreate their
+own named RLS policies, and should be rerunnable. They do not drop existing
+inspection data. If an old inspection points to inconsistent lease/property
+ownership, the script **stops with an explanation**, rather than silently
+reassigning the inspection to a different organization.
+
+**If you saw SQLSTATE 42703**, use the revised scripts from this branch, not
+an old local copy. Apply them in the order below. If either script fails, no
+changes from that invocation are committed; preserve the error text.
+
 ## Apply in Supabase SQL Editor, in this order
 
 1. `supabase/move_out_inspections_v1.sql` (inspection drafts and charges).
