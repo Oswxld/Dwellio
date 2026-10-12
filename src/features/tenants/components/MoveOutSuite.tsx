@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNo
 import type { TenantLease, TenantProfile } from '../data/tenantManagementRepository'
 import {
   addMoveOutCharge, beginMoveOutInspection, editMoveOutCharge,
-  fetchMoveOutWorkspace, removeMoveOutCharge, updateMoveOutInspection,
+  fetchMoveOutWorkspace, removeMoveOutCharge, updateMoveOutInspection, finalizeMoveOut,
   type MoveOutCharge, type MoveOutWorkspace,
 } from '../data/moveOutRepository'
 import { Icon, dateLabel, initials, money, kenyaDate, Status } from './tenantUi'
@@ -62,6 +62,7 @@ export default function MoveOutSuite({organizationId,profile,lease,onRefresh}:Pr
   const [keysReturned,setKeysReturned] = useState(false)
   const [vacated,setVacated] = useState(false)
   const [confirmedDate,setConfirmedDate] = useState(kenyaDate())
+  const [closeConfirmation,setCloseConfirmation] = useState(false)
 
   const refresh = useCallback(() => setRevision(v => v+1),[])
   useEffect(() => {
@@ -95,6 +96,9 @@ export default function MoveOutSuite({organizationId,profile,lease,onRefresh}:Pr
   const payable = obligations === null ? null : Math.max(0,obligations-agreedDeposit)
   const complete = inspection?.status === 'completed'
   const canStart = ['active','notice_given','expired'].includes(lease.status)
+  const finalInvoice = profile.invoices.find(i =>
+    i.lease_id === lease.id && i.invoice_type === 'move_out' && i.status !== 'void',
+  ) ?? null
   const actionsNotReady = 'Final invoice processing requires the server-side settlement RPC to write a verified invoice, its itemized lines, debt-source references and deposit application atomically. This financial backend is not deployed yet; no balances or lease records have been modified.'
 
   async function mutation(run:()=>Promise<void>,message:string) {
@@ -131,6 +135,19 @@ export default function MoveOutSuite({organizationId,profile,lease,onRefresh}:Pr
     }catch(e){setError(e instanceof Error?e.message:'Could not save charge.')}
     finally{setBusy(false)}
   }
+  async function closeout() {
+    if (!finalInvoice || !complete || !keysReturned || !vacated || busy) return
+    setBusy(true);setError('')
+    try {
+      await finalizeMoveOut(lease.id, finalInvoice.id, confirmedDate)
+      setCloseConfirmation(false)
+      setNotice('Move-out finalized: lease terminated and unit marked vacant.')
+      onRefresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Unable to finalize move-out.')
+    } finally {setBusy(false)}
+  }
+
   const doc = {
     invoiceNumber: 'DRAFT · Not issued',
     tenantName: profile.tenant.full_name,
@@ -408,7 +425,7 @@ export default function MoveOutSuite({organizationId,profile,lease,onRefresh}:Pr
           <div className="ts-detail"><div className="ts-detail-label">Tenant</div><div className="ts-detail-value">{profile.tenant.full_name}</div></div>
           <div className="ts-detail"><div className="ts-detail-label">Lease status</div><div className="ts-detail-value">{lease.status.replaceAll('_',' ')}</div></div>
           <div className="ts-detail"><div className="ts-detail-label">Unit</div><div className="ts-detail-value">{lease.propertyName} · {lease.unitName}</div></div>
-          <div className="ts-detail"><div className="ts-detail-label">Final invoice</div><div className="ts-detail-value">Not processed</div></div>
+          <div className="ts-detail"><div className="ts-detail-label">Final invoice</div><div className="ts-detail-value">{finalInvoice?.invoice_number ?? 'Not processed'}</div></div>
         </div>
         <label className="block text-[12px] font-bold text-[#42594d] mt-5">Actual handover date
           <input type="date" value={confirmedDate} onChange={e=>setConfirmedDate(e.target.value)}
@@ -423,11 +440,39 @@ export default function MoveOutSuite({organizationId,profile,lease,onRefresh}:Pr
         </div>
         <div className="flex flex-wrap justify-end gap-3 mt-6">
           <button className="ts-button ts-button--secondary" onClick={()=>setStep(5)}>View statement</button>
-          <button className="ts-button ts-button--primary" disabled title="Requires a processed settlement and secure atomic termination RPC">
-            <Icon name="lock_reset"/> Finalize Move-Out — awaiting backend
+          <button className="ts-button ts-button--primary"
+            disabled={busy || !complete || !keysReturned || !vacated || !finalInvoice || lease.status === 'terminated'}
+            title={!finalInvoice?'A processed, non-void move-out invoice is required before closeout.':'Terminate lease and release the unit'}
+            onClick={()=>setCloseConfirmation(true)}>
+            <Icon name="lock_reset"/> {lease.status==='terminated'?'Tenancy closed':'Finalize Move-Out'}
           </button>
         </div>
       </Panel>}
+
+      {closeConfirmation && <div className="ts-modal-shade">
+        <div className="ts-modal" role="dialog" aria-modal="true" aria-label="Confirm tenancy termination">
+          <div className="ts-modal-heading"><span className="ts-card-icon"><Icon name="lock_reset"/></span>
+            <div><p className="ts-eyebrow">Final confirmation</p><h2>Terminate Lease & Vacate Unit?</h2></div>
+            <button type="button" className="ts-icon-button" disabled={busy}
+              onClick={()=>setCloseConfirmation(false)} aria-label="Close"><Icon name="close"/></button>
+          </div>
+          <p className="ts-muted-note">
+            This authorized action sets the lease status to terminated, records its termination date and marks
+            { ' ' }{lease.unitName} as vacant only if there is no conflicting live or reserved tenancy.
+            Financial history, unpaid balances and any manual refund obligations remain recorded.
+          </p>
+          <div className="ts-soft-notice"><Icon name="shield"/>
+            Inspection completed · Invoice {finalInvoice?.invoice_number ?? 'not available'} · Move-out date {dateLabel(confirmedDate)}
+          </div>
+          {error && <p role="alert" className="ts-form-error">{error}</p>}
+          <div className="ts-modal-actions">
+            <button className="ts-button ts-button--secondary" disabled={busy}
+              onClick={()=>setCloseConfirmation(false)}>Cancel</button>
+            <button className="ts-button ts-button--primary" disabled={busy}
+              onClick={()=>void closeout()}>{busy?'Finalizing…':'Terminate Lease & Mark Unit Vacant'}</button>
+          </div>
+        </div>
+      </div>}
 
       {showForm && <div className="ts-modal-shade">
         <form className="ts-modal" role="dialog" aria-modal="true" aria-label={editCharge?'Edit inspection charge':'Add inspection charge'} onSubmit={e=>void saveCharge(e)}>
