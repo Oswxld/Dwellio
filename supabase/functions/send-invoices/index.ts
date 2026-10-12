@@ -159,7 +159,16 @@ export default {
         continue;
       }
 
-      const kind = claim.sms_type === "move_out" ? "move_out" : "monthly";
+      if (claim.sms_type !== "move_out" && claim.sms_type !== "monthly") {
+        // Never send the wrong (monthly) text if database routing is outdated.
+        results.push({
+          invoice_id: invoiceId,
+          status: "unknown",
+          reason: "SMS routing metadata is missing; verify the unified claim migration",
+        });
+        continue;
+      }
+      const kind = claim.sms_type;
       // Only the move-out database claim may supply a full SMS statement.
       const message = kind === "move_out"
         ? String(claim.message ?? "")
