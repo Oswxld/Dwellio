@@ -34,6 +34,12 @@ function monthLabel(cycle: UnitBillingCycle) {
     .toLocaleDateString('en-KE', { month: 'long', year: 'numeric' })
 }
 
+function historyMonth(value: string | null) {
+  return value ? new Date(`${value}T12:00:00`).toLocaleDateString('en-KE', {
+    month: 'short', year: 'numeric',
+  }) : 'Cycle reading'
+}
+
 function shortDate(value: string | null) {
   if (!value) return '—'
   return new Date(`${value}T12:00:00`)
@@ -115,7 +121,7 @@ function MeterCard({ meter, serviceName }: { meter: UnitMeterUsage; serviceName:
                     <td className="p-3 capitalize">{reading.type}</td>
                     <td className="p-3">
                       {reading.cycleId
-                        ? 'Cycle reading'
+                        ? historyMonth(reading.cycleLabel)
                         : 'Opening / baseline'}
                     </td>
                   </tr>
@@ -149,7 +155,16 @@ export default function UnitBillingPanel({ propertyId, unit, buildingName, floor
         if (cancelled) return
         setCycles(nextCycles)
         // Open the most recent actual billing period when available.
-        setSelectedCycleId(nextCycles[0]?.id ?? null)
+        const nowParts = new Intl.DateTimeFormat('en-GB', {
+          timeZone: 'Africa/Nairobi', year: 'numeric', month: '2-digit',
+        }).formatToParts(new Date())
+        const year = nowParts.find(part => part.type === 'year')?.value ?? ''
+        const month = nowParts.find(part => part.type === 'month')?.value ?? ''
+        const todayMonth = `${year}-${month}`
+        const preferred = nextCycles.find(cycle => cycle.period_start.startsWith(todayMonth)) ??
+          nextCycles.find(cycle => cycle.period_start.slice(0, 7) < todayMonth) ??
+          nextCycles[0]
+        setSelectedCycleId(preferred?.id ?? null)
       } catch (caught) {
         if (!cancelled) setError(caught instanceof Error ? caught.message : 'Could not load billing months.')
       } finally {
