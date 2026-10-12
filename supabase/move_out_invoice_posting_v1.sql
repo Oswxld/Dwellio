@@ -76,7 +76,7 @@ begin
   if v_lease.status::text not in ('active','notice_given','expired') then
     raise exception 'Lease is not eligible for final move-out invoicing';
   end if;
-  if v_inspection.status <> 'completed' then
+  if v_inspection.status::text <> 'completed' then
     raise exception 'Complete the inspection first';
   end if;
   if v_inspection.tenant_id <> v_lease.tenant_id
