@@ -78,7 +78,7 @@ function rateApplies(
 export async function fetchBillingProperties(): Promise<BillingProperty[]> {
   const { data, error } = await supabase
     .from('properties')
-    .select('id, organization_id, name')
+    .select('id, organization_id, name, created_at')
     .eq('status', 'active')
     .is('deleted_at', null)
     .order('name')
@@ -152,11 +152,13 @@ export async function fetchBillingCycles(
 
 export async function createCurrentBillingCycle(
   propertyId: string,
+  periodStart: string,
 ): Promise<string> {
   const { data, error } = await supabase.rpc(
-    'create_billing_cycle',
+    'create_billing_cycle_for_month',
     {
       p_property_id: propertyId,
+      p_period_start: periodStart,
     },
   )
 
