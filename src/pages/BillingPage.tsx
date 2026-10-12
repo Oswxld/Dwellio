@@ -57,6 +57,17 @@ function localMonthKey(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
 }
 
+function propertyStartMonth(createdAt: string) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Africa/Nairobi',
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(new Date(createdAt))
+  const year = parts.find(part => part.type === 'year')?.value
+  const month = parts.find(part => part.type === 'month')?.value
+  return year && month ? `${year}-${month}` : createdAt.slice(0, 7)
+}
+
 function firstDay(month: string) {
   return `${month}-01`
 }
@@ -168,6 +179,7 @@ export default function BillingPage() {
   const [initialServices, setInitialServices] = useState<BillingServicesManagerData | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
   const loadId = useRef(0)
+  const activeSelection = useRef('')
   const [dashboard, setDashboard] = useState(emptyDashboard)
   const [readings, setReadings] = useState(emptyReadings)
   const [step, setStep] = useState<BillingStep>('services')
@@ -195,6 +207,8 @@ export default function BillingPage() {
   const [loadFailed, setLoadFailed] = useState(false)
   const [success, setSuccess] = useState('')
 
+  activeSelection.current = `${propertyId}|${selectedMonth}`
+
   const property = useMemo(
     () => properties.find(item => item.id === propertyId) ?? null,
     [properties, propertyId],
@@ -207,7 +221,7 @@ export default function BillingPage() {
 
   const currentMonth = localMonthKey()
   const earliestMonth = property?.created_at
-    ? property.created_at.slice(0, 7)
+    ? propertyStartMonth(property.created_at)
     : currentMonth
   const isPastMonth = selectedMonth < currentMonth
   const canGoBack = selectedMonth > earliestMonth
@@ -373,10 +387,10 @@ export default function BillingPage() {
 
   const refreshDashboard = useCallback(async () => {
     if (!property || !cycle) return
+    const requestSelection = `${property.id}|${selectedMonth}`
     try {
       const next = await fetchBillingDashboard(property.id, cycle)
-      // The selected cycle must remain active while the request is in flight.
-      if (loadId.current < 0) return
+      if (activeSelection.current !== requestSelection) return
       setDashboard(next)
       if (next.invoiceCount > 0) {
         setStep('invoices')
@@ -387,7 +401,7 @@ export default function BillingPage() {
       console.error('[BillingPage] dashboard refresh failed', loadError)
       setError(errorMessage(loadError, 'Could not refresh the billing cycle.'))
     }
-  }, [property, cycle])
+  }, [property, cycle, selectedMonth])
 
   useEffect(() => {
     if (loading || step !== 'invoices' || !cycle || dashboard.invoiceCount === 0 || finalizedInvoices.length > 0) return
@@ -436,7 +450,7 @@ export default function BillingPage() {
   }, [])
 
   async function createCycle() {
-    if (!property) return
+    if (!property || !canCreateCycle) return
 
     try {
       setCreatingCycle(true)
