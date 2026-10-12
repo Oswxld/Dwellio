@@ -866,9 +866,9 @@ export default function BillingPage() {
               <h2 className="mt-2 text-2xl font-semibold">{monthLabel(selectedMonth)} billing</h2>
               <p className="mt-1 text-sm text-[#424845]">{property.name} · {cycle.status.replaceAll('_', ' ')}</p>
               <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                <Metric label="Drafts" value={String(dashboard.draftCount)} icon="description" />
-                <Metric label="Approved drafts" value={String(dashboard.approvedCount)} icon="check_circle" />
-                <Metric label="Finalized invoices" value={String(dashboard.invoiceCount)} icon="receipt_long" />
+                <Metric label="Drafts" value={String(dashboard.draftCount)} />
+                <Metric label="Approved drafts" value={String(dashboard.approvedCount)} />
+                <Metric label="Finalized invoices" value={String(dashboard.invoiceCount)} />
               </div>
             </div>
             {finalizedInvoices.length > 0 ? (
