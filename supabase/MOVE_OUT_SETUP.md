@@ -25,9 +25,11 @@
 its results for the live deposit columns, enum labels, RPC signatures, and
 lease/property organization consistency. It does not alter data.
 
+Existing inspection rows with conflicting lease, unit or ownership must be reconciled manually; no records are deleted. Historical `inspected_by` is preserved (even if null). New entries use the current authenticated inspector and `inspection_date` in Nairobi time. Completion transitions `status` from `pending` to `completed`.
+
 The existing billing schema, `invoice_lines`, `invoice_line_sources`, `security_deposits`, `deposit_allocations`, `payment_allocations`, `payments`, `refresh_invoice_balance(uuid)` and `apply_deposit_deduction(uuid,uuid,numeric,text)` must already exist.
 
-1. `supabase/move_out_inspections_v1.sql` — **corrected for existing/partial installations:** adds missing `tenant_id`, `unit_id` and `organization_id` to `move_out_inspections`, backfills only missing ownership fields from `leases`, and verifies that old inspection/bill records remain consistent. It will stop with a descriptive error if an old inspection has no linked lease or creator; do **not** drop tables to bypass that check.
+1. `supabase/move_out_inspections_v1.sql` — preserves your original inspection columns: `inspection_date timestamptz`, `inspected_by`, and `status inspection_status` (default `pending`). Adds only tenant/organization linkage and completion timestamp, backfills missing ownership from leases, and adds enum value `completed` if missing. It does **not** convert your enum to text.
 2. `supabase/move_out_sms_v1.sql` — creates settlement snapshots, move-out delivery tracking, and unified SMS claim RPC used by the existing `send-invoices` function
 3. `supabase/move_out_invoice_posting_v1.sql` — creates `process_move_out_invoice(p_inspection_id uuid)`
 4. `supabase/move_out_closeout_v1.sql` — creates `finalize_move_out(...)`
