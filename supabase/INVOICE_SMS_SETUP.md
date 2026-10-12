@@ -1,6 +1,15 @@
 # Dwellio invoice SMS delivery (Step 6)
 
-This is **SMS invoice summary delivery**, not PDF attachment delivery. The messages contain the invoice reference, total amount, due date, and property name. Financial invoice status and balances are not changed.
+> **Already using send-invoices?** Keep that exact Supabase Edge Function name.
+> After installing `move_out_sms_v1.sql`, redeploy the updated
+> `supabase/functions/send-invoices/index.ts` **over the existing function**.
+> It now sends both monthly invoice summaries and full move-out settlements;
+> there is no separate `send-move-out-invoice` function to deploy.
+> The existing monthly claim RPC, delivery table, API keys and request shape
+> remain unchanged. Move-out statements have **no tenant portal URL**.
+> See [MOVE_OUT_SETUP.md](MOVE_OUT_SETUP.md) for migration ordering and testing.
+>
+For regular monthly invoices, this is **SMS invoice summary delivery**, not PDF attachment delivery. The messages contain the invoice reference, total amount, due date, and property name. Financial invoice status and balances are not changed.
 
 ## 1. Deploy the database migration
 
@@ -18,7 +27,7 @@ You must also have already applied the earlier migration that creates `invoices.
 
 ## 2. Deploy the Edge Function
 
-In Supabase Dashboard → Edge Functions → Deploy a new function → Via Editor:
+In Supabase Dashboard → Edge Functions → open existing **send-invoices** and redeploy its code (create the function only if it does not exist):
 
 - Name it exactly `send-invoices`
 - Use code from `supabase/functions/send-invoices/index.ts`
