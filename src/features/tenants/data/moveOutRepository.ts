@@ -7,10 +7,10 @@ export type MoveOutInspection = {
   lease_id: string
   tenant_id: string
   unit_id: string
-  inspected_at: string
-  status: 'draft' | 'completed'
+  inspection_date: string | null
+  status: 'pending' | 'completed'
   notes: string | null
-  created_by: string
+  inspected_by: string | null
   completed_at: string | null
 }
 export type MoveOutCharge = {
@@ -64,7 +64,7 @@ function isMissingTable(error: { code?: string; message?: string }) {
 export async function fetchMoveOutWorkspace(leaseId: string): Promise<MoveOutWorkspace> {
   const { data: inspections, error } = await supabase
     .from('move_out_inspections')
-    .select('id, organization_id, lease_id, tenant_id, unit_id, inspected_at, status, notes, created_by, completed_at')
+    .select('id, organization_id, lease_id, tenant_id, unit_id, inspection_date, status, notes, inspected_by, completed_at')
     .eq('lease_id', leaseId)
     .limit(1)
   if (error) {
@@ -143,8 +143,8 @@ export async function beginMoveOutInspection(args: {
     lease_id: args.leaseId,
     tenant_id: args.tenantId,
     unit_id: args.unitId,
-    inspected_at: args.date,
-    created_by: auth.user.id,
+    inspection_date: `${args.date}T12:00:00+03:00`,
+    inspected_by: auth.user.id,
   })
   if (error) throw error
 }
@@ -152,10 +152,14 @@ export async function beginMoveOutInspection(args: {
 export async function updateMoveOutInspection(
   inspectionId: string, data: { inspected_at?: string; notes?: string | null; status?: 'completed' },
 ) {
-  const payload: Record<string, unknown> = { ...data, updated_at: new Date().toISOString() }
-  if (data.status === 'completed') payload.completed_at = new Date().toISOString()
+  const payload: Record<string, unknown> = {
+    ...(data.inspected_at ? { inspection_date: `${data.inspected_at}T12:00:00+03:00` } : {}),
+    ...(data.notes !== undefined ? { notes: data.notes } : {}),
+    ...(data.status ? { status: data.status } : {}),
+    updated_at: new Date().toISOString(),
+  }
   const { data: result, error } = await supabase.from('move_out_inspections')
-    .update(payload).eq('id', inspectionId).eq('status', 'draft').select('id')
+    .update(payload).eq('id', inspectionId).eq('status', 'pending').select('id')
   if (error) throw error
   if (!result?.length) throw new Error('The inspection cannot be changed. Refresh and check its status.')
 }
