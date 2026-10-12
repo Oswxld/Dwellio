@@ -113,6 +113,33 @@ create table if not exists public.move_out_inspection_bills (
   amount numeric(14,2) not null check (amount > 0),
   created_at timestamptz not null default now()
 );
+-- Older charge tables may also pre-date the current bill-item schema.
+-- Bring missing fields into scope before creating indexes or RLS policies.
+alter table public.move_out_inspection_bills
+  add column if not exists inspection_id uuid references public.move_out_inspections(id) on delete restrict,
+  add column if not exists title text,
+  add column if not exists description text,
+  add column if not exists amount numeric(14,2),
+  add column if not exists created_at timestamptz default now();
+
+-- Existing charge values must not be guessed from unrelated legacy columns.
+do $verify$
+begin
+  if exists (
+    select 1 from public.move_out_inspection_bills
+    where inspection_id is null or nullif(btrim(title), '') is null
+       or amount is null or amount <= 0
+  ) then
+    raise exception 'Legacy inspection bill has missing inspection_id, title or positive amount. Map existing charge data before migrating.';
+  end if;
+end;
+$verify$;
+
+alter table public.move_out_inspection_bills
+  alter column inspection_id set not null,
+  alter column title set not null,
+  alter column amount set not null;
+
 create index if not exists move_out_bills_inspection_idx
   on public.move_out_inspection_bills(inspection_id);
 
