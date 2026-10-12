@@ -22,7 +22,8 @@ function nairobiMonthStart() {
   }).formatToParts(new Date())
   const year = parts.find(part => part.type === 'year')?.value
   const month = parts.find(part => part.type === 'month')?.value
-  return `${year ?? '2026'}-${month ?? '01'}-01`
+  const fallback = new Date()
+  return `${year ?? fallback.getFullYear()}-${month ?? String(fallback.getMonth() + 1).padStart(2, '0')}-01`
 }
 
 function propertyLocation(property: OrganizationProperty) {
@@ -79,7 +80,7 @@ export default function PropertyDetailsPage({ organizationId }: PropertyDetailsP
 
   if (error || !property || !managerData) {
     return (
-      <main className="min-h-full bg-[#edfdf3] px-4 py-8 sm:px-6">
+      <div className="min-h-full bg-[#edfdf3] px-4 py-8 sm:px-6">
         <div className="mx-auto max-w-5xl">
           <Link to="/properties" className="inline-flex items-center gap-1 text-sm font-semibold text-[#1e6a59]">
             <span className="material-symbols-outlined text-[18px]">arrow_back</span>
@@ -92,12 +93,12 @@ export default function PropertyDetailsPage({ organizationId }: PropertyDetailsP
               className="mt-5 rounded-xl bg-[#10211c] px-5 py-2.5 text-sm font-semibold text-white">Retry</button>
           </section>
         </div>
-      </main>
+      </div>
     )
   }
 
   return (
-    <main className="min-h-full bg-[#edfdf3] px-4 py-6 sm:px-6 lg:px-8">
+    <div className="min-h-full bg-[#edfdf3] px-4 py-6 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-[1450px] space-y-5">
         <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs font-semibold">
           <Link to="/properties" className="text-[#1e6a59] hover:underline">Properties</Link>
@@ -172,6 +173,6 @@ export default function PropertyDetailsPage({ organizationId }: PropertyDetailsP
           }}
         />
       </div>
-    </main>
+    </div>
   )
 }
