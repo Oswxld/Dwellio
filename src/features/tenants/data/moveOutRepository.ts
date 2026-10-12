@@ -1,4 +1,5 @@
 import { supabase } from '../../../lib/supabase'
+import { sendInvoiceSmsBatch } from '../../billing/data/invoiceDeliveryRepository'
 
 export type MoveOutInspection = {
   id: string
@@ -231,10 +232,9 @@ export type SendMoveOutSmsResult = {
   reason?: string
 }
 export async function sendMoveOutInvoiceSms(invoiceId: string): Promise<SendMoveOutSmsResult> {
-  const { data, error } = await supabase.functions.invoke<SendMoveOutSmsResult>(
-    'send-move-out-invoice', { body: { invoice_id: invoiceId } },
-  )
-  if (error) throw error
-  if (!data?.status) throw new Error('SMS sender returned an invalid response.')
-  return data
+  // Reuse Billing Step 6's existing send-invoices endpoint and request shape.
+  const batch = await sendInvoiceSmsBatch([invoiceId])
+  const result = batch.results.find(row => row.invoice_id === invoiceId)
+  if (!result) throw new Error('SMS backend did not return the requested invoice result.')
+  return { environment: batch.environment, ...result }
 }
