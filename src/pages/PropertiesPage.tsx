@@ -74,7 +74,7 @@ export default function PropertiesPage({ organizationId }: PropertiesPageProps) 
   if (loading) return <PageSkeleton variant="dashboard" />
 
   return (
-    <main className="min-h-full bg-[#edfdf3] px-4 py-6 sm:px-6 lg:px-8">
+    <div className="min-h-full bg-[#edfdf3] px-4 py-6 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-[1450px] space-y-6">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -192,6 +192,6 @@ export default function PropertiesPage({ organizationId }: PropertiesPageProps) 
           </>
         )}
       </div>
-    </main>
+    </div>
   )
 }
