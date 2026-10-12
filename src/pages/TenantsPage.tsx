@@ -5,6 +5,7 @@ import PageSkeleton from '../components/loading/PageSkeleton'
 import {
   decideMoveOutRequest,
   fetchTenantDirectory,
+  updateTenantContactDetails,
   type TenantDirectoryData,
   type TenantLease,
   type TenantMoveOutRequest,
@@ -111,6 +112,12 @@ export default function TenantsPage({ organizationId }: Props) {
   const [saving, setSaving] = useState(false)
   const [actionError, setActionError] = useState('')
   const [success, setSuccess] = useState('')
+  const [editingContact, setEditingContact] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editEmail, setEditEmail] = useState('')
+  const [editPhone, setEditPhone] = useState('')
+  const [savingContact, setSavingContact] = useState(false)
+  const [contactError, setContactError] = useState('')
 
   useEffect(() => {
     let alive = true
@@ -217,6 +224,32 @@ export default function TenantsPage({ organizationId }: Props) {
     }
   }
 
+  function startContactEdit(profile: TenantProfile) {
+    setEditName(profile.tenant.full_name)
+    setEditEmail(profile.tenant.email)
+    setEditPhone(profile.tenant.phone)
+    setContactError('')
+    setEditingContact(true)
+  }
+
+  async function saveContact() {
+    if (!selected || savingContact) return
+    setSavingContact(true)
+    setContactError('')
+    try {
+      await updateTenantContactDetails(organizationId, selected.tenant.id, {
+        full_name: editName, email: editEmail, phone: editPhone,
+      })
+      setEditingContact(false)
+      setSuccess('Tenant contact information updated.')
+      setRefreshKey(value => value + 1)
+    } catch (caught) {
+      setContactError(caught instanceof Error ? caught.message : 'Unable to save tenant details.')
+    } finally {
+      setSavingContact(false)
+    }
+  }
+
   if (loading) return <PageSkeleton variant="dashboard" />
 
   if (error || !data) return (
@@ -294,7 +327,13 @@ export default function TenantsPage({ organizationId }: Props) {
       {profileView === 'overview' && (
         <div className="grid gap-4 lg:grid-cols-2">
           <section className="rounded-2xl border border-[#dcece2] bg-white p-5">
-            <h2 className="font-['Newsreader'] text-xl font-semibold">Contact information</h2>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="font-['Newsreader'] text-xl font-semibold">Contact information</h2>
+              <button type="button" onClick={() => startContactEdit(selected)}
+                className="inline-flex items-center gap-1 rounded-lg bg-[#e7f7ee] px-3 py-2 text-xs font-semibold text-[#1e6a59]">
+                <span className="material-symbols-outlined text-[17px]">edit</span>Edit details
+              </button>
+            </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <DetailField label="Email" value={selected.tenant.email}/>
               <DetailField label="Phone" value={selected.tenant.phone}/>
@@ -402,9 +441,28 @@ export default function TenantsPage({ organizationId }: Props) {
                     <DetailField label="Paid amount" value={money(invoice.paid_amount)}/>
                     <DetailField label="Invoice outstanding" value={money(invoice.outstanding_amount)}/>
                   </div>
-                  {invoice.previous_balance > 0 && <p className="mt-3 text-[11px] text-[#737875]">
-                    Carried balance originates from earlier invoices. It is not a second independent charge in the tenant account total.
-                  </p>}
+                  {invoice.previous_balance > 0 && (
+                    <div className="mt-3 rounded-xl bg-[#edfdf3] p-3">
+                      <strong className="text-xs text-[#424845]">Carried-forward debt origins</strong>
+                      {invoice.carriedFrom.length > 0 ? (
+                        <div className="mt-2 space-y-1">
+                          {invoice.carriedFrom.map((source, index) => (
+                            <div key={index} className="flex items-center justify-between gap-2 text-xs text-[#424845]">
+                              <span>From {source.invoice_number}</span>
+                              <strong>{money(source.amount)}</strong>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-xs text-[#795e13]">
+                          No invoice_line_sources were returned for this carried balance. Verify the source records.
+                        </p>
+                      )}
+                      <p className="mt-2 text-[11px] text-[#737875]">
+                        Carried-forward amounts are not independent new charges.
+                      </p>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -615,6 +673,50 @@ export default function TenantsPage({ organizationId }: Props) {
           </>
         )}
       </div>
+
+      {editingContact && selected && (
+        <div className="fixed inset-0 z-[95] flex items-end justify-center bg-[#10211c]/55 p-0 backdrop-blur-sm sm:items-center sm:p-6">
+          <section role="dialog" aria-modal="true" aria-label="Edit tenant details"
+            className="w-full max-w-lg rounded-t-2xl bg-[#edfdf3] p-6 shadow-2xl sm:rounded-2xl">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="font-['Newsreader'] text-2xl font-semibold">Edit contact details</h2>
+              <button type="button" aria-label="Close" disabled={savingContact}
+                onClick={() => setEditingContact(false)} className="rounded-lg bg-white p-2 disabled:opacity-40">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-[#737875]">
+              Edit basic tenant contact information. Lease terms and identification details are unchanged.
+            </p>
+            <div className="mt-4 space-y-3">
+              <label className="block text-xs font-semibold text-[#424845]">Full name
+                <input value={editName} onChange={event => setEditName(event.target.value)}
+                  required maxLength={150}
+                  className="mt-1 block w-full rounded-xl border border-[#dcece2] bg-white p-3 text-sm"/>
+              </label>
+              <label className="block text-xs font-semibold text-[#424845]">Email
+                <input type="email" value={editEmail} onChange={event => setEditEmail(event.target.value)}
+                  required maxLength={320}
+                  className="mt-1 block w-full rounded-xl border border-[#dcece2] bg-white p-3 text-sm"/>
+              </label>
+              <label className="block text-xs font-semibold text-[#424845]">Phone number
+                <input type="tel" value={editPhone} onChange={event => setEditPhone(event.target.value)}
+                  required maxLength={30}
+                  className="mt-1 block w-full rounded-xl border border-[#dcece2] bg-white p-3 text-sm"/>
+              </label>
+              {contactError && <p role="alert" className="text-xs text-[#93000a]">{contactError}</p>}
+            </div>
+            <div className="mt-5 flex justify-end gap-3">
+              <button type="button" disabled={savingContact} onClick={() => setEditingContact(false)}
+                className="rounded-xl px-4 py-2.5 text-sm font-semibold text-[#424845]">Cancel</button>
+              <button type="button" disabled={savingContact} onClick={() => void saveContact()}
+                className="rounded-xl bg-[#10211c] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-40">
+                {savingContact ? 'Saving…' : 'Save changes'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {requestBeingReviewed && (
         <div className="fixed inset-0 z-[95] flex items-end justify-center bg-[#10211c]/55 p-0 backdrop-blur-sm sm:items-center sm:p-6">
