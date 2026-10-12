@@ -29,12 +29,14 @@ create table if not exists public.move_out_inspections (
 alter table public.move_out_inspections
   add column if not exists organization_id uuid references public.organizations(id);
 
--- Use the lease's actual organization for any existing inspections.
+-- Backfill missing organization values from the lease, but never silently
+-- overwrite a conflicting existing organization. The validation below will
+-- stop the migration if historical inspection ownership is inconsistent.
 update public.move_out_inspections i
    set organization_id = l.organization_id
   from public.leases l
  where l.id = i.lease_id
-   and i.organization_id is distinct from l.organization_id;
+   and i.organization_id is null;
 
 do $verify$
 begin
@@ -215,7 +217,7 @@ create policy move_out_inspections_insert on public.move_out_inspections
     and exists (
       select 1 from public.leases l
       where l.id = lease_id
-        and l.status in ('active','notice_given','expired')
+        and l.status::text in ('active','notice_given','expired')
     )
     and status = 'draft'
   );
