@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import type { TenantLease, TenantProfile } from '../data/tenantManagementRepository'
 import {
   addMoveOutCharge, beginMoveOutInspection, editMoveOutCharge,
@@ -45,7 +46,13 @@ function Chip({children}: {children:ReactNode}) {
 }
 
 export default function MoveOutSuite({organizationId,profile,lease,onRefresh}:Props) {
-  const [step,setStep] = useState<Step>(1)
+  const [searchParams,setSearchParams] = useSearchParams()
+  const requestedStep=Number(searchParams.get('step'))
+  const step:Step=Number.isInteger(requestedStep) && requestedStep >= 1 && requestedStep <= 7
+    ? requestedStep as Step : 1
+  function setStep(value:Step) {
+    setSearchParams({view:'moveout',step:String(value)})
+  }
   const [workspace,setWorkspace] = useState<MoveOutWorkspace|null>(null)
   const [loading,setLoading] = useState(true)
   const [busy,setBusy] = useState(false)
