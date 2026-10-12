@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import MoveOutSuite from './MoveOutSuite'
 import {
   decideMoveOutRequest, updateTenantContactDetails,
   type TenantProfile, type TenantMoveOutRequest, type TenantInvoice,
@@ -15,13 +16,14 @@ type Props = {
   onRefresh: () => void
 }
 
-type Tab = 'overview' | 'invoices' | 'lease' | 'requests' | 'history'
+type Tab = 'overview' | 'invoices' | 'lease' | 'requests' | 'moveout' | 'history'
 
 const tabs: {id:Tab; title:string; icon:string}[] = [
   {id:'overview',title:'Overview',icon:'space_dashboard'},
   {id:'invoices',title:'Billing & Balances',icon:'account_balance_wallet'},
   {id:'lease',title:'Lease Details',icon:'history_edu'},
   {id:'requests',title:'Move-out Requests',icon:'outbox'},
+  {id:'moveout',title:'Inspection & Settlement',icon:'assignment_turned_in'},
   {id:'history',title:'Tenancy History',icon:'history'},
 ]
 
@@ -409,6 +411,9 @@ export default function TenantProfileView({ organizationId, profile, onRefresh }
           </div>
         </section>
       )}
+
+      {tab === 'moveout' && (lease ? <MoveOutSuite organizationId={organizationId} profile={profile} lease={lease} onRefresh={onRefresh}/> :
+        <InfoCard icon="info" title="No lease available"><p className="ts-muted-note">An inspection requires an existing tenancy.</p></InfoCard>)}
 
       {tab === 'history' && (
         <InfoCard icon="history" title="Tenancy history">
