@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
 
+import UnitBillingPanel from './UnitBillingPanel'
+
 import {
   addPropertyBuilding,
   addPropertyFloor,
@@ -49,12 +51,14 @@ export default function PropertyInventoryPanel({ propertyId, initialData, onUnit
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null)
 
   useEffect(() => {
     setStructure(initialData)
     setMode(null)
     setError('')
     setSuccess('')
+    setSelectedUnitId(null)
   }, [initialData, propertyId])
 
   const totals = useMemo(() => {
@@ -73,6 +77,14 @@ export default function PropertyInventoryPanel({ propertyId, initialData, onUnit
       percentage: total > 0 ? Math.round((counts.occupied / total) * 100) : 0,
     }
   }, [structure.units])
+
+  const selectedUnit = structure.units.find(unit => unit.id === selectedUnitId) ?? null
+  const selectedFloor = selectedUnit
+    ? structure.floors.find(floor => floor.id === selectedUnit.floor_id) ?? null
+    : null
+  const selectedBuilding = selectedFloor
+    ? structure.buildings.find(building => building.id === selectedFloor.building_id) ?? null
+    : null
 
   const floorsInBuilding = structure.floors.filter(floor => floor.building_id === buildingId)
 
@@ -276,7 +288,13 @@ export default function PropertyInventoryPanel({ propertyId, initialData, onUnit
                         ) : (
                           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                             {floorUnits.map(unit => (
-                              <div key={unit.id} className="flex items-center justify-between gap-3 rounded-xl bg-[#f3fbf6] px-3 py-3">
+                              <button
+                                type="button"
+                                key={unit.id}
+                                aria-label={`View ${unit.name} meter readings and consumption`}
+                                onClick={() => setSelectedUnitId(unit.id)}
+                                className="group flex w-full items-center justify-between gap-3 rounded-xl bg-[#f3fbf6] px-3 py-3 text-left transition hover:bg-[#e7f7ee] hover:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#1e6a59]"
+                              >
                                 <div className="min-w-0">
                                   <div className="truncate text-sm font-semibold text-[#111e19]">{unit.name}</div>
                                   <div className="mt-1 text-[10px] text-[#737875]">
@@ -284,12 +302,15 @@ export default function PropertyInventoryPanel({ propertyId, initialData, onUnit
                                       `KSh ${Number(unit.default_rent_amount).toLocaleString('en-KE', { minimumFractionDigits: 2 })}`}
                                   </div>
                                 </div>
+                                <div className="flex shrink-0 items-center gap-1">
                                 <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ${
                                   unit.status === 'occupied' ? 'bg-[#b5e7d1] text-[#005142]' :
                                   unit.status === 'vacant' ? 'bg-white text-[#53645c]' :
                                   'bg-[#fff5dc] text-[#7e621a]'
                                 }`}>{unitStatus(unit.status)}</span>
-                              </div>
+                                <span className="material-symbols-outlined text-[17px] text-[#1e6a59]">chevron_right</span>
+                                </div>
+                              </button>
                             ))}
                           </div>
                         )}
@@ -302,6 +323,17 @@ export default function PropertyInventoryPanel({ propertyId, initialData, onUnit
           </div>
         )}
       </div>
+
+      {selectedUnit && (
+        <UnitBillingPanel
+          key={selectedUnit.id}
+          propertyId={propertyId}
+          unit={selectedUnit}
+          buildingName={selectedBuilding?.name ?? 'Building'}
+          floorName={selectedFloor?.name ?? 'Floor'}
+          onClose={() => setSelectedUnitId(null)}
+        />
+      )}
 
       {mode && (
         <div className="fixed inset-0 z-[90] flex items-end justify-center bg-[#10211c]/50 p-0 backdrop-blur-sm sm:items-center sm:p-6">
