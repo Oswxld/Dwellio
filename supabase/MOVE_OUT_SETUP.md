@@ -18,7 +18,7 @@ These corrected SQL migrations use the **live** property hierarchy:
 
 `units.floor_id -> floors.building_id -> buildings.property_id -> properties.organization_id`.
 
-`units.property_id` is nullable and only cross-checked if populated. The SQL
+`units.property_id` is nullable and is not used for ownership checks. The SQL
 never attempts to read `organization_id` from `units`, `floors`, or `buildings`.
 The `leases` table carries `organization_id`, and the inspection table has its
 **own** `organization_id` column for authorization; this column is added and
