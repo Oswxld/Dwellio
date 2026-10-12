@@ -6,7 +6,6 @@ export type TenantRecord = {
   email: string
   phone: string
   identification_type: string
-  identification_number: string
   date_of_birth: string | null
   status: string
   user_id: string | null
@@ -225,7 +224,7 @@ async function computeLedgerBalances(rawInvoices: RawInvoice[]): Promise<LedgerT
 
 export async function fetchTenantDirectory(organizationId: string): Promise<TenantDirectoryData> {
   const tenantResult = await supabase.from('tenants')
-    .select('id, full_name, email, phone, identification_type, identification_number, date_of_birth, status, user_id, created_at')
+    .select('id, full_name, email, phone, identification_type, date_of_birth, status, user_id, created_at')
     .eq('organization_id', organizationId)
     .is('deleted_at', null)
     .order('full_name')
@@ -320,7 +319,23 @@ export async function fetchTenantDirectory(organizationId: string): Promise<Tena
     }
   })
 
-  const { results: balances, sourcesByInvoice } = await computeLedgerBalances(rawInvoices)
+  // Accounting-source permissions may be narrower than tenant invoice access.
+  // An unavailable ledger must not take the entire tenant directory offline.
+  let balances = new Map<string, BalanceResult>()
+  let sourcesByInvoice = new Map<string, Array<{ invoice_number: string; amount: number }>>()
+  try {
+    const ledger = await computeLedgerBalances(rawInvoices)
+    balances = ledger.results
+    sourcesByInvoice = ledger.sourcesByInvoice
+  } catch (cause) {
+    console.error('[Tenants] Unable to verify carried balances', cause)
+    for (const invoice of rawInvoices) {
+      balances.set(invoice.tenant_id, {
+        amount: null,
+        issue: 'Invoice details are available, but the total account balance could not be verified.',
+      })
+    }
+  }
   const requests = (requestResult.data ?? []) as TenantMoveOutRequest[]
 
   return {
