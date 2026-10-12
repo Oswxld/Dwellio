@@ -32,6 +32,7 @@ export interface BillingProperty {
   id: string
   organization_id: string
   name: string
+  created_at: string
 }
 
 export interface BillingCycle {
