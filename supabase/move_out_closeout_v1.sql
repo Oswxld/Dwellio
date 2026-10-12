@@ -181,7 +181,7 @@ begin
      where other.unit_id = v_lease.unit_id
        and other.id <> v_lease.id
        and other.deleted_at is null
-       and other.status in (
+       and other.status::text in (
          'active','notice_given','not_moved_in_yet','pending_confirmation',
          'pending_acceptance'
        )
