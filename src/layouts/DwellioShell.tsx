@@ -57,7 +57,9 @@ export default function DwellioShell({
       ? 'Payment Settings'
       : location.pathname.startsWith('/billing')
       ? 'Billing'
-      : 'Dashboard'
+      : location.pathname.startsWith('/properties')
+        ? 'Properties'
+        : 'Dashboard'
 
   const [organizationName, setOrganizationName] =
     useState('Your organization')
@@ -102,6 +104,11 @@ export default function DwellioShell({
 
     if (item === 'Billing') {
       navigate('/billing')
+      return
+    }
+
+    if (item === 'Properties') {
+      navigate('/properties')
       return
     }
 

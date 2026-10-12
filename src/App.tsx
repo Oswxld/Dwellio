@@ -38,6 +38,14 @@ const BillingPage = lazy(
   () => import('./pages/BillingPage'),
 )
 
+const PropertiesPage = lazy(
+  () => import('./pages/PropertiesPage'),
+)
+
+const PropertyDetailsPage = lazy(
+  () => import('./pages/PropertyDetailsPage'),
+)
+
 const MpesaSettingsPage = lazy(
   () => import('./pages/MpesaSettingsPage'),
 )
@@ -310,6 +318,16 @@ export default function App() {
         <Route
           path="billing"
           element={<BillingPage />}
+        />
+
+        <Route
+          path="properties"
+          element={<PropertiesPage organizationId={organizationId} />}
+        />
+
+        <Route
+          path="properties/:propertyId"
+          element={<PropertyDetailsPage organizationId={organizationId} />}
         />
 
         <Route
