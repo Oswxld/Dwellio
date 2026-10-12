@@ -216,4 +216,46 @@ revoke all on function public.claim_move_out_sms_delivery(uuid,text,uuid)
   from public,anon,authenticated;
 grant execute on function public.claim_move_out_sms_delivery(uuid,text,uuid)
   to service_role;
+
+-- One Edge Function handles BOTH monthly and move-out invoices.
+-- Keep the existing monthly claim RPC untouched; route to it for every
+-- invoice type except move_out. Explicitly mark the delivery table type.
+create or replace function public.claim_unified_invoice_sms_delivery(
+  p_invoice_id uuid, p_environment text, p_actor_id uuid
+)
+returns jsonb
+language plpgsql security definer set search_path = ''
+as $unified$
+declare
+  v_invoice_type text;
+  v_claim jsonb;
+begin
+  select i.invoice_type::text into v_invoice_type
+    from public.invoices i where i.id = p_invoice_id;
+  if v_invoice_type is null then
+    raise exception 'Invoice does not exist';
+  end if;
+
+  if v_invoice_type = 'move_out' then
+    v_claim := public.claim_move_out_sms_delivery(
+      p_invoice_id, p_environment, p_actor_id
+    );
+    return coalesce(v_claim, '{}'::jsonb) ||
+      jsonb_build_object('sms_type', 'move_out');
+  end if;
+
+  -- Existing Billing Step 6 claim remains the authoritative monthly logic.
+  v_claim := public.claim_invoice_sms_delivery(
+    p_invoice_id, p_environment, p_actor_id
+  );
+  return coalesce(v_claim, '{}'::jsonb) ||
+    jsonb_build_object('sms_type', 'monthly');
+end;
+$unified$;
+
+revoke all on function public.claim_unified_invoice_sms_delivery(uuid,text,uuid)
+  from public,anon,authenticated;
+grant execute on function public.claim_unified_invoice_sms_delivery(uuid,text,uuid)
+  to service_role;
+
 commit;
