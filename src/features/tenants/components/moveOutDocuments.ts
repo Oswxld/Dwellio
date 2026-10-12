@@ -2,6 +2,8 @@ import type { MoveOutCharge } from '../data/moveOutRepository'
 
 export type MoveOutDocument = {
   invoiceNumber: string
+  final: boolean
+  arrearSources: Array<{ invoiceNumber: string; amount: number }>
   tenantName: string
   phone: string
   property: string
@@ -45,13 +47,14 @@ function wrap(text:string,max=90) {
 function createPdf(doc:MoveOutDocument):Blob {
   const entries:string[]=[
     'DWELLIO - MOVE-OUT SETTLEMENT',
-    'DRAFT - NOT AN ISSUED FINANCIAL INVOICE',
+    doc.final ? 'OFFICIAL FINAL MOVE-OUT STATEMENT' : 'DRAFT - NOT AN ISSUED FINANCIAL INVOICE',
     '',
     'Property: '+doc.property,
     'Unit: '+doc.unit,
     'Tenant: '+doc.tenantName,
     'Phone: '+doc.phone,
     'Inspection date: '+doc.date,
+    'Invoice number: '+doc.invoiceNumber,
     '',
     'ITEMIZED INSPECTION CHARGES',
     ...doc.charges.flatMap((c,i)=>[
@@ -59,17 +62,25 @@ function createPdf(doc:MoveOutDocument):Blob {
       ...(c.description?['   '+c.description]:[]),
     ]),
     '',
-    'FINANCIAL PREVIEW (NOT RECONCILED)',
+    'ORIGINAL UNPAID INVOICES',
+    ...doc.arrearSources.map(src => src.invoiceNumber + ': '+ amount(src.amount)),
+    '',
+    doc.final ? 'FINAL FINANCIAL SETTLEMENT' : 'FINANCIAL PREVIEW (NOT RECONCILED)',
     'Inspection charges: '+amount(doc.charges.reduce((s,c)=>s+c.amount,0)),
-    'Historical account balance (indicative): '+amount(doc.previousArrears),
+    'Historical account balance: '+amount(doc.previousArrears),
     'Agreed security deposit: '+amount(doc.deposit),
-    'Indicative deposit applied: '+amount(doc.applied),
-    'Indicative tenant amount payable: '+amount(doc.payable),
-    'Indicative deposit refundable: '+amount(doc.refundable),
+    'Deposit applied: '+amount(doc.applied),
+    'Tenant amount payable: '+amount(doc.payable),
+    'Deposit refundable: '+amount(doc.refundable),
     '',
     'The landlord handles refunds outside Dwellio. No B2C transfer was made.',
-    'This draft does not constitute a finalized invoice or payment receipt.',
-    'Final amounts require verified invoice-line sources, payments and deposits.',
+    ...(doc.final ? [
+      'The statement is finalized; refund transfer is NOT automatic.',
+      'Any tenant payable remains due until properly receipted.',
+    ] : [
+      'This draft does not constitute a finalized invoice or payment receipt.',
+      'Final amounts require verified invoice-line sources, payments and deposits.',
+    ]),
   ]
   const lines=entries.flatMap(row=>wrap(row,88))
   const pages:string[][]=[]
@@ -114,7 +125,9 @@ export function downloadMoveOutDraftPdf(doc:MoveOutDocument) {
   const url=URL.createObjectURL(createPdf(doc))
   const link=document.createElement('a')
   link.href=url
-  link.download=`Dwellio_Move_Out_Draft_${doc.tenantName.trim().replace(/[^a-z0-9]+/gi,'_')}.pdf`
+  link.download = doc.final
+    ? `Dwellio_Final_Settlement_${doc.invoiceNumber.replace(/[^a-z0-9_-]+/gi,'_')}.pdf`
+    : `Dwellio_Move_Out_Draft_${doc.tenantName.trim().replace(/[^a-z0-9]+/gi,'_')}.pdf`
   document.body.appendChild(link)
   link.click()
   link.remove()
