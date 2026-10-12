@@ -112,7 +112,7 @@ type RawInvoice = {
   due_date: string | null
 }
 
-type Line = { id: string; invoice_id: string }
+type Line = { id: string; invoice_id: string; is_receivable: boolean }
 type Source = { invoice_line_id: string; source_invoice_id: string; amount: number | string }
 
 type BalanceResult = { amount: number | null; issue: string | null }
@@ -134,7 +134,7 @@ async function computeLedgerBalances(rawInvoices: RawInvoice[]): Promise<LedgerT
   for (const batch of chunks(invoiceIds)) {
     const { data, error } = await supabase
       .from('invoice_lines')
-      .select('id, invoice_id')
+      .select('id, invoice_id, is_receivable')
       .in('invoice_id', batch)
     if (error) throw error
     lines.push(...((data ?? []) as Line[]))
@@ -150,13 +150,14 @@ async function computeLedgerBalances(rawInvoices: RawInvoice[]): Promise<LedgerT
     sources.push(...((data ?? []) as Source[]))
   }
 
-  const invoiceIdByLineId = new Map(lines.map(line => [line.id, line.invoice_id]))
+  const lineById = new Map(lines.map(line => [line.id, line]))
   const rolledByInvoice = new Map<string, number>()
   const duplicatedByTenant = new Map<string, number>()
   const problematicTenants = new Set<string>()
 
   for (const source of sources) {
-    const destinationId = invoiceIdByLineId.get(source.invoice_line_id)
+    const destinationLine = lineById.get(source.invoice_line_id)
+    const destinationId = destinationLine?.invoice_id
     const destination = destinationId ? invoiceById.get(destinationId) : null
     if (!destination) continue
     const origin = invoiceById.get(source.source_invoice_id)
@@ -175,9 +176,11 @@ async function computeLedgerBalances(rawInvoices: RawInvoice[]): Promise<LedgerT
     list.push({ invoice_number: originNumber, amount })
     sourcesByInvoice.set(destination.id, list)
 
-    // Only subtract a copied balance when its original non-void invoice
-    // is also included in the sum; void invoices aren't counted at all.
-    if (origin) {
+    // Carry-forward lines with is_receivable=false are INFORMATIONAL,
+    // not a duplicate charge in invoices.outstanding_amount. Never subtract
+    // them again. Older legacy schemas may have truly receivable copies,
+    // which need separate reconciliation.
+    if (origin && destinationLine?.is_receivable) {
       duplicatedByTenant.set(
         destination.tenant_id,
         (duplicatedByTenant.get(destination.tenant_id) ?? 0) + amount,
