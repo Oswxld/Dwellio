@@ -15,6 +15,7 @@ export type UnitReadingHistory = {
   value: number
   type: string
   cycleId: string | null
+  cycleLabel: string | null
 }
 
 export type UnitMeterUsage = {
@@ -233,9 +234,12 @@ export async function fetchUnitBillingBreakdown(
   }
 
   const cycleStartById = new Map(cycles.map(cycle => [cycle.id, cycle.period_start]))
-  const date = selectedCycle?.period_end ?? new Intl.DateTimeFormat('en-CA', {
+  const dateParts = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Africa/Nairobi', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(new Date())
+  }).formatToParts(new Date())
+  const dateValue = (type: string) => dateParts.find(part => part.type === type)?.value ?? ''
+  const date = selectedCycle?.period_end ??
+    `${dateValue('year')}-${dateValue('month')}-${dateValue('day')}`
 
   const mapped: UnitServiceUsage[] = services.map(service => {
     const serviceRates = rates
@@ -263,6 +267,9 @@ export async function fetchUnitBillingBreakdown(
         value: numeric(reading.value) ?? 0,
         type: reading.reading_type,
         cycleId: reading.billing_cycle_id,
+        cycleLabel: reading.billing_cycle_id
+          ? (cycles.find(cycle => cycle.id === reading.billing_cycle_id)?.period_start ?? null)
+          : null,
       }))
 
       const chargeDetail = relatedCharges
