@@ -38,6 +38,7 @@ export type TenantInvoice = {
   lease_id: string
   tenant_id: string
   invoice_number: string
+  invoice_type: string
   billing_period_start: string
   billing_period_end: string
   current_charges: number
@@ -99,6 +100,7 @@ type RawInvoice = {
   lease_id: string
   tenant_id: string
   invoice_number: string
+  invoice_type: string
   billing_period_start: string
   billing_period_end: string
   current_charges: number | string
@@ -250,7 +252,7 @@ export async function fetchTenantDirectory(organizationId: string): Promise<Tena
   const rawInvoices: RawInvoice[] = []
   for (const batch of chunks([...tenantIds])) {
     const result = await supabase.from('invoices')
-      .select('id, lease_id, tenant_id, invoice_number, billing_period_start, billing_period_end, current_charges, previous_balance, total_payable, paid_amount, outstanding_amount, status, due_date')
+      .select('id, lease_id, tenant_id, invoice_number, invoice_type, billing_period_start, billing_period_end, current_charges, previous_balance, total_payable, paid_amount, outstanding_amount, status, due_date')
       .in('tenant_id', batch)
       .order('billing_period_start', { ascending: false })
     if (result.error) throw result.error
