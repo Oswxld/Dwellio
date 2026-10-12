@@ -7,7 +7,7 @@
 -- Property ownership resolution:
 -- units.floor_id -> floors.building_id ->
 -- buildings.property_id -> properties.organization_id
--- units.property_id is nullable; never assume units has organization_id.
+-- units.property_id is nullable; use floor/building ancestry instead.
 --
 -- FINALIZE MOVE-OUT is independent of whether a notice was submitted.
 -- Does not send SMS or make B2C payments.
@@ -122,7 +122,7 @@ begin
   -- Lease/tenant/unit must belong to the property in this organization.
   -- There is NO units.organization_id, floors.organization_id,
   -- or buildings.organization_id.
-  select u.id, u.status, u.property_id, p.id as actual_property_id
+  select u.id, u.status, p.id as actual_property_id
     into v_unit
     from public.units u
     join public.floors f on f.id = u.floor_id
@@ -132,7 +132,6 @@ begin
    where u.id = v_lease.unit_id
      and t.organization_id = v_lease.organization_id
      and p.organization_id = v_lease.organization_id
-     and (u.property_id is null or u.property_id = p.id)
      and u.deleted_at is null
      and f.deleted_at is null
      and b.deleted_at is null
