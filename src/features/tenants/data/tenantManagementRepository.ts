@@ -213,12 +213,18 @@ async function computeLedgerBalances(rawInvoices: RawInvoice[]): Promise<Map<str
 }
 
 export async function fetchTenantDirectory(organizationId: string): Promise<TenantDirectoryData> {
-  const [tenantResult, leasesResult, contactResult, invoiceResult] = await Promise.all([
-    supabase.from('tenants')
-      .select('id, full_name, email, phone, identification_type, identification_number, date_of_birth, status, user_id, created_at')
-      .eq('organization_id', organizationId)
-      .is('deleted_at', null)
-      .order('full_name'),
+  const tenantResult = await supabase.from('tenants')
+    .select('id, full_name, email, phone, identification_type, identification_number, date_of_birth, status, user_id, created_at')
+    .eq('organization_id', organizationId)
+    .is('deleted_at', null)
+    .order('full_name')
+  if (tenantResult.error) throw tenantResult.error
+
+  const tenants = (tenantResult.data ?? []) as TenantRecord[]
+  if (!tenants.length) return { profiles: [] }
+  const tenantIds = new Set(tenants.map(tenant => tenant.id))
+
+  const [leasesResult, contactResult] = await Promise.all([
     supabase.from('leases')
       .select('id, tenant_id, unit_id, start_date, end_date, notice_date, move_out_date, rent_amount, deposit_amount, due_day, grace_period_days, billing_frequency, status')
       .eq('organization_id', organizationId)
@@ -226,22 +232,23 @@ export async function fetchTenantDirectory(organizationId: string): Promise<Tena
     supabase.from('tenant_emergency_contacts')
       .select('tenant_id, full_name, relationship, phone')
       .eq('organization_id', organizationId),
-    // Invoice tenant_id and lease_id are authoritative; drafts aren't debts.
-    supabase.from('invoices')
-      .select('id, lease_id, tenant_id, invoice_number, billing_period_start, billing_period_end, current_charges, previous_balance, total_payable, paid_amount, outstanding_amount, status, due_date')
-      .order('billing_period_start', { ascending: false }),
   ])
+  if (leasesResult.error) throw leasesResult.error
+  if (contactResult.error) throw contactResult.error
 
-  for (const result of [tenantResult, leasesResult, contactResult, invoiceResult]) {
+  // Never query every organization's invoices and filter in the browser.
+  const rawInvoices: RawInvoice[] = []
+  for (const batch of chunks([...tenantIds])) {
+    const result = await supabase.from('invoices')
+      .select('id, lease_id, tenant_id, invoice_number, billing_period_start, billing_period_end, current_charges, previous_balance, total_payable, paid_amount, outstanding_amount, status, due_date')
+      .in('tenant_id', batch)
+      .order('billing_period_start', { ascending: false })
     if (result.error) throw result.error
+    rawInvoices.push(...((result.data ?? []) as RawInvoice[]))
   }
 
-  const tenants = (tenantResult.data ?? []) as TenantRecord[]
-  const tenantIds = new Set(tenants.map(tenant => tenant.id))
   const rawLeases = (leasesResult.data ?? []).filter(lease => tenantIds.has(lease.tenant_id))
   const unitIds = [...new Set(rawLeases.map(lease => lease.unit_id))]
-  const rawInvoices = ((invoiceResult.data ?? []) as RawInvoice[])
-    .filter(invoice => tenantIds.has(invoice.tenant_id))
 
   const [unitResult, requestResult] = await Promise.all([
     unitIds.length
