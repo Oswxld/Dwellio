@@ -2,7 +2,7 @@
 -- Apply this entire file first in Supabase SQL Editor.
 -- Real property ancestry: units.floor_id -> floors.building_id ->
 -- buildings.property_id -> properties.organization_id.
--- units.property_id is OPTIONAL and never used as the only ownership source.
+-- units.property_id is optional and is NOT needed for ownership checks.
 -- Inspections may start without a tenant notice.
 -- No security deposit, invoice, SMS or lease is modified by this file.
 
@@ -90,7 +90,6 @@ as $match$
        and l.organization_id = p_organization_id
        and t.organization_id = p_organization_id
        and p.organization_id = p_organization_id
-       and (u.property_id is null or u.property_id = p.id)
        and l.deleted_at is null
        and t.deleted_at is null
        and u.deleted_at is null
