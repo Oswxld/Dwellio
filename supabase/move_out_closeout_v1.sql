@@ -154,7 +154,7 @@ begin
      and mi.unit_id = v_lease.unit_id
    for update;
   if not found
-     or v_inspection.status <> 'completed'
+     or v_inspection.status::text <> 'completed'
      or v_inspection.organization_id <> v_lease.organization_id then
     raise exception 'A completed, organization-matched inspection is required';
   end if;
