@@ -24,30 +24,81 @@ create table if not exists public.move_out_inspections (
   updated_at timestamptz not null default now()
 );
 
--- CREATE TABLE IF NOT EXISTS does not add missing columns to an existing table.
--- Repair an installation where this table was created without organization_id.
+-- An older version of move_out_inspections may already exist with
+-- only lease_id (and without tenant_id, unit_id, or organization_id).
+-- CREATE TABLE IF NOT EXISTS does NOT repair existing table structures.
+-- Add expected fields BEFORE any statement reads those fields.
+-- Existing values are preserved and validated: never overwrite a
+-- conflicting tenant/unit/organization with values from another lease.
 alter table public.move_out_inspections
-  add column if not exists organization_id uuid references public.organizations(id);
+  add column if not exists organization_id uuid references public.organizations(id),
+  add column if not exists lease_id uuid references public.leases(id) on delete restrict,
+  add column if not exists tenant_id uuid references public.tenants(id) on delete restrict,
+  add column if not exists unit_id uuid references public.units(id) on delete restrict,
+  add column if not exists inspected_at date default (now() at time zone 'Africa/Nairobi')::date,
+  add column if not exists status text default 'draft',
+  add column if not exists notes text,
+  add column if not exists created_by uuid references auth.users(id),
+  add column if not exists completed_at timestamptz,
+  add column if not exists created_at timestamptz default now(),
+  add column if not exists updated_at timestamptz default now();
 
--- Backfill missing organization values from the lease, but never silently
--- overwrite a conflicting existing organization. The validation below will
--- stop the migration if historical inspection ownership is inconsistent.
+-- Backfill only the missing identity fields, from the authoritative lease.
+-- This update does not rewrite populated identifiers or financial data.
 update public.move_out_inspections i
-   set organization_id = l.organization_id
+   set organization_id = coalesce(i.organization_id, l.organization_id),
+       tenant_id       = coalesce(i.tenant_id, l.tenant_id),
+       unit_id         = coalesce(i.unit_id, l.unit_id)
   from public.leases l
  where l.id = i.lease_id
-   and i.organization_id is null;
+   and (i.organization_id is null or i.tenant_id is null or i.unit_id is null);
 
+-- A pre-existing inspection without a lease or creator cannot safely be
+-- invented. Stop and identify these rows instead of discarding them.
 do $verify$
 begin
-  if exists (select 1 from public.move_out_inspections where organization_id is null) then
-    raise exception 'Inspections exist without a valid lease organization. Repair their lease_id before applying this migration.';
+  if exists (
+    select 1 from public.move_out_inspections
+    where lease_id is null or tenant_id is null or unit_id is null
+      or organization_id is null
+  ) then
+    raise exception 'Legacy inspection has missing lease/tenant/unit/organization identity. Resolve the linked lease before migrating.';
+  end if;
+
+  if exists (
+    select 1 from public.move_out_inspections
+    where created_by is null
+  ) then
+    raise exception 'Legacy inspection has no created_by. Identify the original inspector; the migration will not invent an actor.';
+  end if;
+
+  if exists (
+    select 1 from public.move_out_inspections
+    where inspected_at is null or status is null
+  ) then
+    raise exception 'Legacy inspection has missing inspection date or status. Review the existing records before migrating.';
+  end if;
+
+  if exists (
+    select 1 from public.move_out_inspections i
+    join public.leases l on l.id = i.lease_id
+    where i.tenant_id is distinct from l.tenant_id
+       or i.unit_id is distinct from l.unit_id
+       or i.organization_id is distinct from l.organization_id
+  ) then
+    raise exception 'Legacy inspection ownership conflicts with its lease. Resolve tenant_id, unit_id or organization_id before continuing.';
   end if;
 end;
 $verify$;
 
 alter table public.move_out_inspections
-  alter column organization_id set not null;
+  alter column organization_id set not null,
+  alter column tenant_id set not null,
+  alter column unit_id set not null,
+  alter column lease_id set not null,
+  alter column created_by set not null,
+  alter column inspected_at set not null,
+  alter column status set not null;
 
 create unique index if not exists move_out_inspections_one_per_lease
   on public.move_out_inspections(lease_id);
