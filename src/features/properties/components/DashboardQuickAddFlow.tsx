@@ -161,19 +161,25 @@ export default function DashboardQuickAddFlow({
     setStepIndex(current=>Math.max(0,current-1))
   }
   const chooseProperty = (id: string) => {
-    if (kind !== 'building') setLoading(true)
-    setPropertyId(id)
-    setBuildingId('')
-    setFloorId('')
-    setBuildings([])
-    setFloors([])
+    // Preserve already-fetched children if the user goes Back and chooses
+    // the same property; otherwise React's dependency array won't refetch.
+    if (id !== propertyId) {
+      if (kind !== 'building') setLoading(true)
+      setPropertyId(id)
+      setBuildingId('')
+      setFloorId('')
+      setBuildings([])
+      setFloors([])
+    }
     next()
   }
   const chooseBuilding = (id: string) => {
-    if (kind === 'units') setLoading(true)
-    setBuildingId(id)
-    setFloorId('')
-    setFloors([])
+    if (id !== buildingId) {
+      if (kind === 'units') setLoading(true)
+      setBuildingId(id)
+      setFloorId('')
+      setFloors([])
+    }
     next()
   }
   const chooseFloor = (id: string) => {
