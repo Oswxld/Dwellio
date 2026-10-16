@@ -5,15 +5,13 @@ import PropertyStructureWizard from './PropertyStructureWizard'
 import UnitBillingPanel from './UnitBillingPanel'
 
 import {
-  addPropertyBuilding,
-  addPropertyFloor,
   addPropertyUnit,
   fetchPropertyStructure,
   type PropertyStructure,
   type PropertyUnit,
 } from '../data/propertyStructureRepository'
 
-type Action = 'unit' | 'floor' | 'building' | null
+type Action = 'unit' | null
 
 type Props = {
   propertyId: string
@@ -49,9 +47,6 @@ export default function PropertyInventoryPanel({ propertyId, initialData, onUnit
   )
   const [unitName, setUnitName] = useState('')
   const [rent, setRent] = useState('')
-  const [buildingName, setBuildingName] = useState('')
-  const [floorName, setFloorName] = useState('')
-  const [floorNumber, setFloorNumber] = useState('')
   const [buildingId, setBuildingId] = useState('')
   const [floorId, setFloorId] = useState('')
   const [search, setSearch] = useState('')
@@ -123,15 +118,12 @@ export default function PropertyInventoryPanel({ propertyId, initialData, onUnit
       : structure.units
   }, [structure.units, search])
 
-  function open(action: Exclude<Action, null>) {
-    setMode(action)
+  function openUnit() {
+    setMode('unit')
     setError('')
     setSuccess('')
     setUnitName('')
     setRent('')
-    setBuildingName('')
-    setFloorName('')
-    setFloorNumber('')
     const firstBuildingId = structure.buildings[0]?.id ?? ''
     setBuildingId(firstBuildingId)
     setFloorId(structure.floors.find(floor => floor.building_id === firstBuildingId)?.id ?? '')
@@ -145,46 +137,30 @@ export default function PropertyInventoryPanel({ propertyId, initialData, onUnit
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!mode || busy) return
-
     try {
       setBusy(true)
       setError('')
-      if (mode === 'building') {
-        await addPropertyBuilding(propertyId, buildingName)
-      } else if (mode === 'floor') {
-        if (!buildingId) throw new Error('Select a building first.')
-        if (floorNumber.trim() === '') throw new Error('Enter a floor number.')
-        await addPropertyFloor(propertyId, buildingId, floorName, Number(floorNumber))
-      } else {
-        if (!floorId) throw new Error('Select a floor first.')
-        if (rent.trim() && (!Number.isFinite(Number(rent)) || Number(rent) < 0)) {
-          throw new Error('Enter a valid default rent amount.')
-        }
-        await addPropertyUnit(propertyId, floorId, unitName, rent.trim() === '' ? null : Number(rent))
+      if (!floorId) throw new Error('Select a floor first.')
+      if (rent.trim() && (!Number.isFinite(Number(rent)) || Number(rent) < 0)) {
+        throw new Error('Enter a valid default rent amount.')
       }
-
-      const completedAction = mode
+      await addPropertyUnit(
+        propertyId, floorId, unitName,
+        rent.trim() === '' ? null : Number(rent),
+      )
       const updated = await fetchPropertyStructure(propertyId)
       setStructure(updated)
       setMode(null)
-      setSuccess(
-        completedAction === 'unit'
-          ? 'Unit added successfully. It begins with Vacant status.'
-          : completedAction === 'floor'
-            ? 'Floor added successfully.'
-            : 'Building added successfully.',
-      )
-
-      if (completedAction === 'unit') {
-        try {
-          await onUnitAdded()
-        } catch (refreshError) {
-          console.error('[Properties] Unit saved, but service summary refresh failed', refreshError)
-          setError('The unit was saved, but billing-service meter counts could not refresh. Reload this property to update them.')
-        }
+      setSuccess('Unit added successfully. It begins with Vacant status.')
+      if (initialAction) navigate(`/properties/${propertyId}`, { replace: true })
+      try {
+        await onUnitAdded()
+      } catch (refreshError) {
+        console.error('[Properties] Unit saved, but service totals could not refresh', refreshError)
+        setError('The unit was saved. Reload this property to refresh billing-service meter counts.')
       }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The change could not be saved.')
+      setError(caught instanceof Error ? caught.message : 'The unit could not be saved.')
     } finally {
       setBusy(false)
     }
@@ -211,7 +187,7 @@ export default function PropertyInventoryPanel({ propertyId, initialData, onUnit
             className="rounded-xl border border-[#dcece2] bg-white px-3 py-2.5 text-xs font-semibold text-[#1e6a59] shadow-sm disabled:opacity-45">
             + Floor with units
           </button>
-          <button type="button" onClick={() => open('unit')} disabled={!structure.floors.length}
+          <button type="button" onClick={openUnit} disabled={!structure.floors.length}
             className="inline-flex items-center gap-1 rounded-xl bg-[#10211c] px-4 py-2.5 text-xs font-semibold text-white shadow-[0_4px_14px_rgba(16,33,28,.14)] disabled:opacity-45">
             <span className="material-symbols-outlined text-[18px]">add</span>
             Add unit
@@ -372,97 +348,61 @@ export default function PropertyInventoryPanel({ propertyId, initialData, onUnit
         onSaved={bundleSaved}
       />}
 
-      {mode && (
+      {mode === 'unit' && (
         <div className="fixed inset-0 z-[90] flex items-end justify-center bg-[#10211c]/50 p-0 backdrop-blur-sm sm:items-center sm:p-6">
-          <section aria-label={mode === 'unit' ? 'Add unit' : mode === 'floor' ? 'Add floor' : 'Add building'}
-            role="dialog" aria-modal="true"
+          <section aria-label="Add unit" role="dialog" aria-modal="true"
             className="max-h-[94vh] w-full max-w-xl overflow-y-auto rounded-t-2xl bg-[#edfdf3] shadow-2xl sm:rounded-2xl">
             <div className="sticky top-0 flex items-center justify-between border-b border-[#dcece2] bg-[#edfdf3] px-5 py-4">
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-widest text-[#1e6a59]">Property structure</div>
-                <h3 className="font-['Newsreader'] text-2xl font-semibold text-[#111e19]">
-                  {mode === 'unit' ? 'Add unit' : mode === 'floor' ? 'Add floor' : 'Add building'}
-                </h3>
+                <h3 className="font-['Newsreader'] text-2xl font-semibold text-[#111e19]">Add unit</h3>
               </div>
               <button type="button" aria-label="Close" disabled={busy}
-                onClick={() => { setMode(null); setError('') }}
+                onClick={() => { setMode(null); setError(''); if (initialAction) navigate(`/properties/${propertyId}`, {replace:true}) }}
                 className="rounded-lg bg-white p-2 text-[#424845] disabled:opacity-50">
                 <span className="material-symbols-outlined">close</span>
               </button>
             </div>
             <form onSubmit={event => void submit(event)} className="space-y-5 p-5">
               {error && <div role="alert" className="rounded-xl bg-[#fff0ee] p-3 text-sm text-[#93000a]">{error}</div>}
-
-              {mode === 'building' && (
-                <label className="block text-xs font-semibold text-[#424845]">
-                  Building name
-                  <input value={buildingName} onChange={event => setBuildingName(event.target.value)}
-                    required maxLength={100} placeholder="e.g. Block A"
-                    className="mt-2 w-full rounded-xl border border-[#dcece2] bg-white p-3 text-sm"/>
-                </label>
+              <label className="block text-xs font-semibold text-[#424845]">Building
+                <select value={buildingId} onChange={event => selectBuilding(event.target.value)} required
+                  className="mt-2 w-full rounded-xl border border-[#dcece2] bg-white p-3 text-sm">
+                  {structure.buildings.map(building => <option key={building.id} value={building.id}>{building.name}</option>)}
+                </select>
+              </label>
+              <label className="block text-xs font-semibold text-[#424845]">Floor
+                <select value={floorId} onChange={event => setFloorId(event.target.value)} required
+                  className="mt-2 w-full rounded-xl border border-[#dcece2] bg-white p-3 text-sm">
+                  {floorsInBuilding.map(floor => <option key={floor.id} value={floor.id}>{floor.name}</option>)}
+                </select>
+              </label>
+              {floorsInBuilding.length === 0 && (
+                <p className="rounded-xl bg-[#fff5dc] p-3 text-xs text-[#7e621a]">
+                  This building has no floors yet. Use Add floor & units first.
+                </p>
               )}
-
-              {(mode === 'floor' || mode === 'unit') && (
-                <label className="block text-xs font-semibold text-[#424845]">
-                  Building
-                  <select value={buildingId} onChange={event => selectBuilding(event.target.value)} required
-                    className="mt-2 w-full rounded-xl border border-[#dcece2] bg-white p-3 text-sm">
-                    {structure.buildings.map(building => <option key={building.id} value={building.id}>{building.name}</option>)}
-                  </select>
-                </label>
-              )}
-
-              {mode === 'floor' && (
-                <>
-                  <label className="block text-xs font-semibold text-[#424845]">Floor name
-                    <input value={floorName} onChange={event => setFloorName(event.target.value)}
-                      required maxLength={100} placeholder="e.g. Ground Floor"
-                      className="mt-2 w-full rounded-xl border border-[#dcece2] bg-white p-3 text-sm"/>
-                  </label>
-                  <label className="block text-xs font-semibold text-[#424845]">Floor number
-                    <input type="number" step="1" value={floorNumber} onChange={event => setFloorNumber(event.target.value)}
-                      required placeholder="e.g. 0 for ground floor"
-                      className="mt-2 w-full rounded-xl border border-[#dcece2] bg-white p-3 text-sm"/>
-                  </label>
-                </>
-              )}
-
-              {mode === 'unit' && (
-                <>
-                  <label className="block text-xs font-semibold text-[#424845]">Floor
-                    <select value={floorId} onChange={event => setFloorId(event.target.value)} required
-                      className="mt-2 w-full rounded-xl border border-[#dcece2] bg-white p-3 text-sm">
-                      {floorsInBuilding.map(floor => <option key={floor.id} value={floor.id}>{floor.name}</option>)}
-                    </select>
-                  </label>
-                  {floorsInBuilding.length === 0 && (
-                    <p className="rounded-xl bg-[#fff5dc] p-3 text-xs text-[#7e621a]">
-                      This building has no floors yet. Add a floor first.
-                    </p>
-                  )}
-                  <label className="block text-xs font-semibold text-[#424845]">Unit name
-                    <input value={unitName} onChange={event => setUnitName(event.target.value)}
-                      required maxLength={100} placeholder="e.g. A9"
-                      className="mt-2 w-full rounded-xl border border-[#dcece2] bg-white p-3 text-sm"/>
-                  </label>
-                  <label className="block text-xs font-semibold text-[#424845]">
-                    Default rent (KES) · Optional
-                    <input type="number" min="0" step="0.01" value={rent} onChange={event => setRent(event.target.value)}
-                      placeholder="e.g. 12000"
-                      className="mt-2 w-full rounded-xl border border-[#dcece2] bg-white p-3 text-sm"/>
-                  </label>
-                  <p className="rounded-xl bg-[#e7f7ee] p-3 text-xs leading-5 text-[#424845]">
-                    New units start as Vacant. If usage-based billing services exist, configure a meter for this unit under Billing services afterward.
-                  </p>
-                </>
-              )}
-
+              <label className="block text-xs font-semibold text-[#424845]">Unit name
+                <input value={unitName} onChange={event => setUnitName(event.target.value)}
+                  required maxLength={100} placeholder="e.g. A9"
+                  className="mt-2 w-full rounded-xl border border-[#dcece2] bg-white p-3 text-sm"/>
+              </label>
+              <label className="block text-xs font-semibold text-[#424845]">
+                Default rent (KSh) · Optional
+                <input type="number" min="0" step="0.01" value={rent}
+                  onChange={event => setRent(event.target.value)} placeholder="e.g. 12000"
+                  className="mt-2 w-full rounded-xl border border-[#dcece2] bg-white p-3 text-sm"/>
+              </label>
+              <p className="rounded-xl bg-[#e7f7ee] p-3 text-xs leading-5 text-[#424845]">
+                New units begin as vacant. Configure usage-based meters for the unit under Billing services.
+              </p>
               <div className="flex justify-end gap-3 border-t border-[#dcece2] pt-4">
-                <button type="button" disabled={busy} onClick={() => { setMode(null); setError('') }}
+                <button type="button" disabled={busy}
+                  onClick={() => { setMode(null); setError(''); if (initialAction) navigate(`/properties/${propertyId}`, {replace:true}) }}
                   className="rounded-xl px-4 py-2.5 text-sm font-semibold text-[#424845] disabled:opacity-50">Cancel</button>
-                <button type="submit" disabled={busy || (mode === 'unit' && !floorId)}
+                <button type="submit" disabled={busy || !floorId}
                   className="rounded-xl bg-[#10211c] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
-                  {busy ? 'Saving…' : mode === 'unit' ? 'Add unit' : mode === 'floor' ? 'Add floor' : 'Add building'}
+                  {busy ? 'Saving…' : 'Add unit'}
                 </button>
               </div>
             </form>
