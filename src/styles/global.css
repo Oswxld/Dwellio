@@ -444,3 +444,29 @@
     cursor: pointer;
   }
 }
+
+/* Dashboard creation flow: refined entrance and step-to-step transitions. */
+@keyframes dwellio-quickadd-appear {
+  from { opacity: 0; transform: translateY(18px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes dwellio-quickadd-enter-step {
+  from { opacity: 0; transform: translateX(12px); filter: blur(2px); }
+  to { opacity: 1; transform: translateX(0); filter: blur(0); }
+}
+.dwellio-quickadd-pop {
+  animation: dwellio-quickadd-appear .27s cubic-bezier(.2,.8,.2,1) both;
+}
+.dwellio-quickadd-stage {
+  animation: dwellio-quickadd-enter-step .25s ease-out both;
+}
+.dwellio-quickadd-pop button:focus-visible,
+.dwellio-quickadd-pop input:focus-visible {
+  outline: 2px solid #2a896c;
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dwellio-quickadd-pop, .dwellio-quickadd-stage {
+    animation: none;
+  }
+}
