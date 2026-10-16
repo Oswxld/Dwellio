@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
-import { addPropertyStructureBundle, type PropertyBuilding } from '../data/propertyStructureRepository'
+import type { PropertyBuilding } from '../data/propertyStructureRepository'
+import { createBuildingFloorUnits, createFloorUnits } from '../data/propertyQuickAddRepository'
 
 type Mode = 'building' | 'floor'
 type UnitDraft = { key: number; name: string; rent: string }
@@ -62,14 +63,23 @@ export default function PropertyStructureWizard({
 
     setBusy(true)
     try {
-      await addPropertyStructureBundle({
-        propertyId,
-        buildingId: mode === 'floor' ? buildingId : undefined,
-        buildingName: mode === 'building' ? buildingName.trim() : undefined,
-        floorName: floorName.trim(),
-        floorNumber: Number(floorNumber),
-        units: mapped,
-      })
+      if (mode === 'building') {
+        await createBuildingFloorUnits({
+          propertyId,
+          buildingName: buildingName.trim(),
+          floorName: floorName.trim(),
+          floorNumber: Number(floorNumber),
+          units: mapped,
+        })
+      } else {
+        await createFloorUnits({
+          propertyId,
+          buildingId,
+          floorName: floorName.trim(),
+          floorNumber: Number(floorNumber),
+          units: mapped,
+        })
+      }
       await onSaved()
       onClose()
     } catch (caught) {
