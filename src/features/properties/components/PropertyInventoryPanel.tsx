@@ -75,14 +75,17 @@ export default function PropertyInventoryPanel({ propertyId, initialData, onUnit
   }
 
   async function bundleSaved() {
-    const updated = await fetchPropertyStructure(propertyId)
-    setStructure(updated)
+    // The bundle was ALREADY committed atomically by Supabase. A failed
+    // client refresh must not leave the wizard open where retrying creates a
+    // second building/floor/units.
     setSuccess('Property structure saved with its floor and all units.')
     try {
+      const updated = await fetchPropertyStructure(propertyId)
+      setStructure(updated)
       await onUnitAdded()
     } catch (refreshError) {
-      console.error('[Properties] Structure saved, but service totals could not refresh', refreshError)
-      setError('Structure created. Refresh the property to update billing-service meter counts.')
+      console.error('[Properties] Saved structure could not be refreshed', refreshError)
+      setError('Structure was created successfully. Reload the property to refresh its unit and meter counts.')
     }
   }
 
