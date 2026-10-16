@@ -315,6 +315,7 @@ export default function App() {
           element={
             <DashboardPage
               user={user}
+              organizationId={organizationId}
             />
           }
         />
