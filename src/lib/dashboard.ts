@@ -16,6 +16,7 @@ export async function getDashboardProperties(organizationId: string): Promise<Da
     .from('properties')
     .select('id, name, address, city, county')
     .eq('organization_id', organizationId)
+    .neq('status', 'deleted')
     .is('deleted_at', null)
     .order('name')
 
