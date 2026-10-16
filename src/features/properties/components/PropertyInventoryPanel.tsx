@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
+import PropertyStructureWizard from './PropertyStructureWizard'
 
 import UnitBillingPanel from './UnitBillingPanel'
 
@@ -17,6 +19,7 @@ type Props = {
   propertyId: string
   initialData: PropertyStructure
   onUnitAdded: () => Promise<void>
+  initialAction?: 'building' | 'floor' | 'unit'
 }
 
 const stateOrder = [
@@ -37,9 +40,13 @@ function unitStatus(status: PropertyUnit['status']) {
   }
 }
 
-export default function PropertyInventoryPanel({ propertyId, initialData, onUnitAdded }: Props) {
+export default function PropertyInventoryPanel({ propertyId, initialData, onUnitAdded, initialAction }: Props) {
+  const navigate = useNavigate()
   const [structure, setStructure] = useState(initialData)
-  const [mode, setMode] = useState<Action>(null)
+  const [mode, setMode] = useState<Action>(initialAction === 'unit' ? 'unit' : null)
+  const [bundleMode, setBundleMode] = useState<'building' | 'floor' | null>(
+    initialAction === 'building' || initialAction === 'floor' ? initialAction : null,
+  )
   const [unitName, setUnitName] = useState('')
   const [rent, setRent] = useState('')
   const [buildingName, setBuildingName] = useState('')
@@ -55,11 +62,29 @@ export default function PropertyInventoryPanel({ propertyId, initialData, onUnit
 
   useEffect(() => {
     setStructure(initialData)
-    setMode(null)
+    setMode(initialAction === 'unit' ? 'unit' : null)
+    setBundleMode(initialAction === 'building' || initialAction === 'floor' ? initialAction : null)
     setError('')
     setSuccess('')
     setSelectedUnitId(null)
-  }, [initialData, propertyId])
+  }, [initialData, propertyId, initialAction])
+
+  function closeBundle() {
+    setBundleMode(null)
+    if (initialAction) navigate(`/properties/${propertyId}`, { replace: true })
+  }
+
+  async function bundleSaved() {
+    const updated = await fetchPropertyStructure(propertyId)
+    setStructure(updated)
+    setSuccess('Property structure saved with its floor and all units.')
+    try {
+      await onUnitAdded()
+    } catch (refreshError) {
+      console.error('[Properties] Structure saved, but service totals could not refresh', refreshError)
+      setError('Structure created. Refresh the property to update billing-service meter counts.')
+    }
+  }
 
   const totals = useMemo(() => {
     const counts = {
@@ -175,13 +200,13 @@ export default function PropertyInventoryPanel({ propertyId, initialData, onUnit
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => open('building')}
+          <button type="button" onClick={() => setBundleMode('building')}
             className="rounded-xl border border-[#dcece2] bg-white px-3 py-2.5 text-xs font-semibold text-[#1e6a59] shadow-sm">
-            + Building
+            + Building & floor with units
           </button>
-          <button type="button" onClick={() => open('floor')} disabled={!structure.buildings.length}
+          <button type="button" onClick={() => setBundleMode('floor')} disabled={!structure.buildings.length}
             className="rounded-xl border border-[#dcece2] bg-white px-3 py-2.5 text-xs font-semibold text-[#1e6a59] shadow-sm disabled:opacity-45">
-            + Floor
+            + Floor with units
           </button>
           <button type="button" onClick={() => open('unit')} disabled={!structure.floors.length}
             className="inline-flex items-center gap-1 rounded-xl bg-[#10211c] px-4 py-2.5 text-xs font-semibold text-white shadow-[0_4px_14px_rgba(16,33,28,.14)] disabled:opacity-45">
@@ -334,6 +359,15 @@ export default function PropertyInventoryPanel({ propertyId, initialData, onUnit
           onClose={() => setSelectedUnitId(null)}
         />
       )}
+
+      {bundleMode && <PropertyStructureWizard
+        key={bundleMode}
+        mode={bundleMode}
+        propertyId={propertyId}
+        buildings={structure.buildings}
+        onClose={closeBundle}
+        onSaved={bundleSaved}
+      />}
 
       {mode && (
         <div className="fixed inset-0 z-[90] flex items-end justify-center bg-[#10211c]/50 p-0 backdrop-blur-sm sm:items-center sm:p-6">
