@@ -183,3 +183,32 @@ export async function addPropertyUnit(
   })
   if (error) throw error
 }
+
+/**
+ * Add a complete building + floor + at least one unit, or add a floor and
+ * its units under an existing building. The server-side RPC is atomic.
+ */
+export async function addPropertyStructureBundle(input: {
+  propertyId: string
+  buildingId?: string
+  buildingName?: string
+  floorName: string
+  floorNumber: number
+  units: Array<{ name: string; defaultRent: number | null }>
+}): Promise<void> {
+  const { data, error } = await supabase.rpc('add_property_structure_bundle', {
+    p_property_id: input.propertyId,
+    p_building_id: input.buildingId ?? null,
+    p_building_name: input.buildingName ?? null,
+    p_floor_name: input.floorName,
+    p_floor_number: input.floorNumber,
+    p_units: input.units.map(unit => ({
+      name: unit.name,
+      default_rent_amount: unit.defaultRent,
+    })),
+  })
+  if (error) throw error
+  if (!data || Number(data.units_created) !== input.units.length) {
+    throw new Error('The property structure was not saved completely.')
+  }
+}
