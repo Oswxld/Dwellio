@@ -387,3 +387,86 @@
 .tenant-auth-selected-email button{border:0;color:#1d6958;background:transparent;font-size:12px;font-weight:750;padding:9px 0 9px 9px;flex:none}
 .tenant-auth-selected-email button:hover{text-decoration:underline}
 .auth-confirm-action{margin-top:24px}
+
+/* Focused landlord workspace: functional mobile navigation, no fake alerts. */
+.topbar-page-label {
+  margin-right: auto;
+  color: #42594d;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .02em;
+}
+.mobile-menu-toggle,
+.mobile-nav-close,
+.mobile-nav-backdrop { display: none; }
+.property-row { border: 0; background: transparent; cursor: pointer; }
+.property-row:focus-visible {
+  outline: 2px solid #1e6a59;
+  outline-offset: 2px;
+}
+@media (max-width:760px) {
+  .topbar-page-label { display: none; }
+  .mobile-menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    margin-right: 9px;
+    border-radius: 10px;
+    border: 0;
+    background: #edf7f3;
+    color: #10211c;
+    font-size: 22px;
+    cursor: pointer;
+  }
+  .sidebar.mobile-open {
+    transform: translateX(0);
+    z-index: 61;
+    box-shadow: 20px 0 40px rgba(10,35,25,.19);
+  }
+  .mobile-nav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    background: rgba(16,33,28,.5);
+    border: 0;
+    padding: 0;
+  }
+  .mobile-nav-close {
+    display: inline-flex;
+    margin-left: auto;
+    color: #dce8e3;
+    background: transparent;
+    border: 0;
+    font-size: 27px;
+    cursor: pointer;
+  }
+}
+
+/* Dashboard creation flow: refined entrance and step-to-step transitions. */
+@keyframes dwellio-quickadd-appear {
+  from { opacity: 0; transform: translateY(18px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes dwellio-quickadd-enter-step {
+  from { opacity: 0; transform: translateX(12px); filter: blur(2px); }
+  to { opacity: 1; transform: translateX(0); filter: blur(0); }
+}
+.dwellio-quickadd-pop {
+  animation: dwellio-quickadd-appear .27s cubic-bezier(.2,.8,.2,1) both;
+}
+.dwellio-quickadd-stage {
+  animation: dwellio-quickadd-enter-step .25s ease-out both;
+}
+.dwellio-quickadd-pop button:focus-visible,
+.dwellio-quickadd-pop input:focus-visible {
+  outline: 2px solid #2a896c;
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dwellio-quickadd-pop, .dwellio-quickadd-stage {
+    animation: none;
+  }
+}

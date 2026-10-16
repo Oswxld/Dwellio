@@ -16,10 +16,66 @@ export async function getDashboardProperties(organizationId: string): Promise<Da
     .from('properties')
     .select('id, name, address, city, county')
     .eq('organization_id', organizationId)
-    .eq('status', 'active')
+    .neq('status', 'deleted')
     .is('deleted_at', null)
     .order('name')
 
   if (error) throw error
   return (data ?? []) as DashboardProperty[]
+}
+
+export type DashboardFinancials = {
+  period_start: string
+  invoice_count: number
+  expected: number
+  outstanding: number
+  collected: number
+}
+
+/** Same finalized monthly billing-cycle basis as Billing > Total invoiced. */
+export async function getDashboardFinancials(
+  organizationId: string,
+  month: string,
+): Promise<DashboardFinancials> {
+  const periodStart = `${month}-01`
+  const { data, error, status, statusText } = await supabase.rpc(
+    'get_landlord_dashboard_financials',
+    {
+      p_organization_id: organizationId,
+      p_period_start: periodStart,
+    },
+  )
+  if (error) {
+    console.error('[Dashboard financials] Supabase RPC failed', {
+      rpc: 'get_landlord_dashboard_financials',
+      organizationId,
+      periodStart,
+      httpStatus: status,
+      statusText,
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      rawError: error,
+    })
+    throw error
+  }
+  if (!data) {
+    console.error('[Dashboard financials] RPC returned no data', {
+      organizationId,
+      periodStart,
+      status,
+      statusText,
+      data,
+    })
+    throw new Error('The financial dashboard returned no data.')
+  }
+  const result = data as DashboardFinancials
+  return {
+    ...result,
+    invoice_count: Number(result.invoice_count),
+    expected: Number(result.expected),
+    outstanding: Number(result.outstanding),
+    collected: Number(result.collected),
+  }
 }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 
 import PageSkeleton from '../components/loading/PageSkeleton'
 import {
@@ -27,6 +27,10 @@ function statusLabel(status: OrganizationProperty['status']) {
 }
 
 export default function PropertiesPage({ organizationId }: PropertiesPageProps) {
+  const location = useLocation()
+  const initialCreate = new URLSearchParams(location.search).get('create')
+  const createQuery = ['building','floor','unit'].includes(initialCreate ?? '')
+    ? `?create=${initialCreate}` : ''
   const [properties, setProperties] = useState<OrganizationProperty[]>([])
   const [organizationName, setOrganizationName] = useState('')
   const [search, setSearch] = useState('')
@@ -158,7 +162,7 @@ export default function PropertiesPage({ organizationId }: PropertiesPageProps) 
                   {filtered.map(property => (
                     <Link
                       key={property.id}
-                      to={`/properties/${property.id}`}
+                      to={`/properties/${property.id}${createQuery}`}
                       className="group flex min-h-[190px] flex-col justify-between rounded-2xl border border-[#dcece2] bg-[#f3fbf6] p-5 shadow-[0_8px_22px_rgba(16,33,28,0.035)] transition hover:-translate-y-0.5 hover:border-[#a8d8c5] hover:shadow-[0_14px_30px_rgba(16,33,28,0.09)]"
                     >
                       <div className="flex items-start justify-between gap-2">
