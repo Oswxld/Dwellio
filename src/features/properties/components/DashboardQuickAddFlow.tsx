@@ -161,6 +161,7 @@ export default function DashboardQuickAddFlow({
     setStepIndex(current=>Math.max(0,current-1))
   }
   const chooseProperty = (id: string) => {
+    if (kind !== 'building') setLoading(true)
     setPropertyId(id)
     setBuildingId('')
     setFloorId('')
@@ -169,6 +170,7 @@ export default function DashboardQuickAddFlow({
     next()
   }
   const chooseBuilding = (id: string) => {
+    if (kind === 'units') setLoading(true)
     setBuildingId(id)
     setFloorId('')
     setFloors([])
@@ -214,6 +216,10 @@ export default function DashboardQuickAddFlow({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if(busy || created || !propertyId) return
+    if (step !== 'review') {
+      goNext()
+      return
+    }
     try {
       setFormError('')
       const values=parsedUnits()
