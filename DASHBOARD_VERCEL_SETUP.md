@@ -26,17 +26,22 @@
 
 ## SQL setup in Supabase (required before using the new features)
 
-Run these two scripts in Supabase **SQL Editor**, each as one complete query,
-after the existing billing and property tables exist:
+Deployment status in the connected **Dwellio** Supabase project:
 
-1. `supabase/dashboard_financials_v2.sql`
+1. `supabase/dashboard_financials_v2.sql` — **INSTALLED AND TESTED**.
    - Installs `get_landlord_dashboard_financials(p_organization_id uuid,
-     p_period_start date)`. Read-only; performs an active-membership check.
-   - Requires `properties`, `billing_cycles`, `bill_drafts`,
-     `invoices` and `public.is_org_member(uuid)` already in the database.
-   - Does not affect payments or outstanding balances.
+     p_period_start date)` using SECURITY INVOKER and existing RLS policies.
+   - Requires an active owner/admin/manager of the requested organization.
+   - Compares monthly finalized invoices by joining `properties`,
+     `billing_cycles`, `bill_drafts` and `invoices`.
+   - Does not affect payments, outstanding balances, tables or other RPCs.
+   - October 2026 verified as 2 finalized invoices: Expected KSh 14,904,
+     Outstanding KSh 14,904 and Collected KSh 0. An authenticated owner
+     session and the empty September 2026 month were also verified.
 
-2. `supabase/property_structure_bundle_v1.sql`
+2. `supabase/property_structure_bundle_v1.sql` — **NOT YET INSTALLED**.
+   - Run this script in Supabase SQL Editor before using the new building
+     and floor creation wizard.
    - Installs `add_property_structure_bundle(...)`.
    - Authenticated landlord or manager permissions are checked on the property.
    - Creates a new building, floor and one-or-more units in one transaction;
@@ -44,9 +49,11 @@ after the existing billing and property tables exist:
    - The whole transaction rolls back if any validation or insert fails.
    - Existing units and existing standalone property data are untouched.
 
-**Both scripts are only committed to the GitHub feature branch. They have not
-been run against your live Supabase database.** The React build cannot verify
-SQL execution. Apply and test on non-production data before a live rollout.
+The dashboard financial RPC was applied as tracked migration
+`add_landlord_dashboard_financials_verified` on the connected Dwellio
+database. The property-structure RPC has not been installed or tested in
+the live database. Keep its creation wizard disabled in production until
+its migration has been reviewed and tested against the live property schema.
 
 ## Test cases
 
