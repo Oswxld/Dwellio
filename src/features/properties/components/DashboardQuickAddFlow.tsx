@@ -335,6 +335,26 @@ export default function DashboardQuickAddFlow({
                   </div>
                 </div>
 
+                {step!=='property' && selectedProperty && (
+                  <div className="mb-5 flex flex-wrap items-center gap-2 text-[11px] font-bold text-[#426c54]">
+                    <span className="inline-flex items-center gap-1 rounded-full border border-[#cce5d4] bg-[#edf9f0] px-3 py-1.5">
+                      <Symbol name="domain" className="text-[15px]"/>{selectedProperty.name}
+                    </span>
+                    {(kind!=='building' && selectedBuilding) && (
+                      <>
+                        <Symbol name="chevron_right" className="text-[16px] text-[#9bb5a3]"/>
+                        <span className="rounded-full border border-[#cce5d4] bg-[#edf9f0] px-3 py-1.5">{selectedBuilding.name}</span>
+                      </>
+                    )}
+                    {(kind==='units' && selectedFloor) && (
+                      <>
+                        <Symbol name="chevron_right" className="text-[16px] text-[#9bb5a3]"/>
+                        <span className="rounded-full border border-[#cce5d4] bg-[#edf9f0] px-3 py-1.5">{selectedFloor.name}</span>
+                      </>
+                    )}
+                  </div>
+                )}
+
                 {loadError && <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[#f3d1cb] bg-[#fff0ee] p-4 text-sm text-[#9a4439]">
                   <span>{loadError}</span>
                   <button type="button" onClick={()=>setRetry(n=>n+1)} className="font-bold underline">Try again</button>
