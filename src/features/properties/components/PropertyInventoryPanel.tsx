@@ -67,7 +67,7 @@ export default function PropertyInventoryPanel({ propertyId, initialData, onUnit
     setError('')
     setSuccess('')
     setSelectedUnitId(null)
-  }, [initialData, propertyId, initialAction])
+  }, [initialData, propertyId])
 
   function closeBundle() {
     setBundleMode(null)
