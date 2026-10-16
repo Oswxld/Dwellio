@@ -9,6 +9,8 @@ import {
   type DashboardFinancials,
 } from '../lib/dashboard'
 import type { DashboardProperty, DashboardSummary } from '../types/dashboard'
+import DashboardQuickAddFlow from '../features/properties/components/DashboardQuickAddFlow'
+import type { QuickAddKind } from '../features/properties/data/propertyQuickAddRepository'
 
 type Props = { user: User; organizationId: string }
 type Attention = {
@@ -18,7 +20,7 @@ type Attention = {
   action: string
   href: string
 }
-type QuickAction = { label: string; description: string; href: string }
+type QuickAction = { label: string; description: string; href?: string; kind?: QuickAddKind }
 
 function number(value: number) {
   return new Intl.NumberFormat('en-KE').format(value)
@@ -52,17 +54,17 @@ const quickActions: QuickAction[] = [
   {
     label: 'Add building + floor + units',
     description: 'Select a property and create a complete building structure',
-    href: '/properties?create=building',
+    kind: 'building',
   },
   {
     label: 'Add floor + units',
     description: 'Select a property and add a furnished floor structure',
-    href: '/properties?create=floor',
+    kind: 'floor',
   },
   {
     label: 'Add units',
     description: 'Select a property, building and existing floor',
-    href: '/properties?create=unit',
+    kind: 'units',
   },
 ]
 
@@ -77,6 +79,8 @@ export default function DashboardPage({ user, organizationId }: Props) {
   const [portfolioError, setPortfolioError] = useState('')
   const [financeError, setFinanceError] = useState('')
   const [quickAddOpen, setQuickAddOpen] = useState(false)
+  const [quickAddKind, setQuickAddKind] = useState<QuickAddKind | null>(null)
+  const [portfolioRevision, setPortfolioRevision] = useState(0)
 
   // Keep the portfolio separate from financial data: a missing financial
   // migration must never hide all the other real estate information.
@@ -108,7 +112,7 @@ export default function DashboardPage({ user, organizationId }: Props) {
       setLoadingPortfolio(false)
     })
     return () => { alive = false }
-  }, [organizationId])
+  }, [organizationId, portfolioRevision])
 
   useEffect(() => {
     let alive = true
@@ -207,7 +211,8 @@ export default function DashboardPage({ user, organizationId }: Props) {
                     <button key={action.label} type="button" className="quick-add-item"
                       onClick={() => {
                         setQuickAddOpen(false)
-                        navigate(action.href)
+                        if (action.kind) setQuickAddKind(action.kind)
+                        else if (action.href) navigate(action.href)
                       }}>
                       <span className="quick-add-item-icon">+</span>
                       <span className="quick-add-item-copy">
@@ -248,7 +253,10 @@ export default function DashboardPage({ user, organizationId }: Props) {
           <div className="attention-grid">
             {attention.map(item => (
               <button type="button" key={item.title} className={`attention-card ${item.tone}`}
-                onClick={() => navigate(item.href)}>
+                onClick={() => {
+                  if (item.href === '/properties?create=building') setQuickAddKind('building')
+                  else navigate(item.href)
+                }}>
                 <span className="attention-symbol">{item.tone === 'danger' ? '!' : '△'}</span>
                 <span className="attention-copy">
                   <strong>{item.title}</strong><span>{item.description}</span>
@@ -346,6 +354,13 @@ export default function DashboardPage({ user, organizationId }: Props) {
           </div>
         </section>
       </div>
+      {quickAddKind && <DashboardQuickAddFlow
+        key={quickAddKind}
+        kind={quickAddKind}
+        organizationId={organizationId}
+        onClose={() => setQuickAddKind(null)}
+        onCreated={() => setPortfolioRevision(v => v + 1)}
+      />}
     </div>
   )
 }
