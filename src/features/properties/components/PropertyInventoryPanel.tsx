@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import PropertyStructureWizard from './PropertyStructureWizard'
+import { createUnits } from '../data/propertyQuickAddRepository'
 
 import UnitBillingPanel from './UnitBillingPanel'
 
 import {
-  addPropertyUnit,
   fetchPropertyStructure,
   type PropertyStructure,
   type PropertyUnit,
@@ -144,10 +144,15 @@ export default function PropertyInventoryPanel({ propertyId, initialData, onUnit
       if (rent.trim() && (!Number.isFinite(Number(rent)) || Number(rent) < 0)) {
         throw new Error('Enter a valid default rent amount.')
       }
-      await addPropertyUnit(
-        propertyId, floorId, unitName,
-        rent.trim() === '' ? null : Number(rent),
-      )
+      await createUnits({
+        propertyId,
+        buildingId,
+        floorId,
+        units: [{
+          name: unitName,
+          defaultRent: rent.trim() === '' ? null : Number(rent),
+        }],
+      })
       const updated = await fetchPropertyStructure(propertyId)
       setStructure(updated)
       setMode(null)
