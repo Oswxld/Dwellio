@@ -292,7 +292,7 @@ export default function DashboardQuickAddFlow({
             </div>
             <h3 className="mt-6 font-['Newsreader'] text-3xl font-semibold text-[#102820]">Successfully created!</h3>
             <p className="mt-3 max-w-md text-sm leading-7 text-[#64776c]">
-              ${'Your '} {created.units_created} unit{created.units_created===1?'':'s'} {kind==='units'?'were added':'and the new property structure were added'} to <b>{selectedProperty?.name}</b>.
+              {created.units_created} unit{created.units_created===1?'':'s'} {kind==='units'?'were added':'were created with their new building or floor'} in <b>{selectedProperty?.name}</b>.
               Every unit begins with <strong>Vacant</strong> status.
             </p>
             <div className="mt-7 flex flex-wrap justify-center gap-3">
