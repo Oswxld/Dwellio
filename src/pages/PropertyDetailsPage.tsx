@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 
 import PageSkeleton from '../components/loading/PageSkeleton'
 import BillingServicesPanel from '../features/billing/components/BillingServicesPanel'
@@ -36,6 +36,10 @@ function propertyLocation(property: OrganizationProperty) {
 
 export default function PropertyDetailsPage({ organizationId }: PropertyDetailsPageProps) {
   const { propertyId } = useParams<{ propertyId: string }>()
+  const location = useLocation()
+  const requestedCreate = new URLSearchParams(location.search).get('create')
+  const initialAction = requestedCreate === 'building' || requestedCreate === 'floor' || requestedCreate === 'unit'
+    ? requestedCreate : undefined
   const [effectiveFrom, setEffectiveFrom] = useState(nairobiMonthStart)
   const [property, setProperty] = useState<OrganizationProperty | null>(null)
   const [managerData, setManagerData] = useState<BillingServicesManagerData | null>(null)
@@ -154,6 +158,7 @@ export default function PropertyDetailsPage({ organizationId }: PropertyDetailsP
         </header>
 
         <PropertyInventoryPanel
+          initialAction={initialAction}
           key={property.id}
           propertyId={property.id}
           initialData={structure}
