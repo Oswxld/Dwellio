@@ -117,9 +117,29 @@ export default function DashboardPage({ user, organizationId }: Props) {
     setFinanceError('')
     void getDashboardFinancials(organizationId, month)
       .then(rows => { if (alive) setFinancials(rows) })
-      .catch(error => {
-        if (alive) setFinanceError(error instanceof Error
-          ? error.message : 'Unable to retrieve finalized monthly invoices.')
+      .catch((caught: unknown) => {
+        // Supabase/PostgREST errors are often plain objects rather than native
+        // Error instances. Preserve the original response for diagnosis.
+        const detail = caught && typeof caught === 'object'
+          ? caught as { message?: string; code?: string; details?: string; hint?: string }
+          : null
+        console.error('[Dashboard] Failed to load financial figures', {
+          rpc: 'get_landlord_dashboard_financials',
+          organizationId,
+          month,
+          code: detail?.code,
+          message: detail?.message,
+          details: detail?.details,
+          hint: detail?.hint,
+          rawError: caught,
+        })
+        if (alive) {
+          const message = detail?.message
+            || (caught instanceof Error ? caught.message : String(caught ?? ''))
+          setFinanceError(message
+            ? `${message}${detail?.code ? ` (code: ${detail.code})` : ''}`
+            : 'Unable to retrieve finalized monthly invoices.')
+        }
       })
       .finally(() => { if (alive) setLoadingMoney(false) })
     return () => { alive = false }
