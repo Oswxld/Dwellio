@@ -39,21 +39,25 @@ Deployment status in the connected **Dwellio** Supabase project:
      Outstanding KSh 14,904 and Collected KSh 0. An authenticated owner
      session and the empty September 2026 month were also verified.
 
-2. `supabase/property_structure_bundle_v1.sql` — **NOT YET INSTALLED**.
-   - Run this script in Supabase SQL Editor before using the new building
-     and floor creation wizard.
-   - Installs `add_property_structure_bundle(...)`.
-   - Authenticated landlord or manager permissions are checked on the property.
-   - Creates a new building, floor and one-or-more units in one transaction;
-     OR a new floor and one-or-more units inside an existing building.
-   - The whole transaction rolls back if any validation or insert fails.
-   - Existing units and existing standalone property data are untouched.
+2. `supabase/dashboard_property_quick_add_v1.sql` — **INSTALLED AND TESTED**.
+   - Installs **three independent RPCs**, each with its own parameter signature:
+     `dashboard_add_building_with_floor_units` (property, building name, floor details, unit list);
+     `dashboard_add_floor_with_units` (property, existing building, floor details, unit list);
+     `dashboard_add_units` (property, building, existing floor, unit list).
+   - The interactive dashboard Add menu fetches properties, buildings and floors
+     directly from Supabase and presents them in the step-by-step creation modal.
+   - No building or floor is created without units. Entire creation rolls back
+     if validation/insertion fails.
+   - Uses existing authenticated landlord/manager RLS rules, unit defaults and
+     `sync_unit_property_id_trigger`.
+   - TESTED in a transaction using an authenticated owner, covering all
+     three operations, unit property ID/status defaults, cross-building rejection
+     and empty-unit validation. **Test inserts were rolled back.**
+   - All existing property tables, constraints and policies were preserved.
 
-The dashboard financial RPC was applied as tracked migration
-`add_landlord_dashboard_financials_verified` on the connected Dwellio
-database. The property-structure RPC has not been installed or tested in
-the live database. Keep its creation wizard disabled in production until
-its migration has been reviewed and tested against the live property schema.
+`supabase/property_structure_bundle_v1.sql` (old combined RPC) was removed
+from the feature branch because it was never installed and has now been
+superseded by these three distinct RPCs. Do not run the obsolete migration.
 
 ## Test cases
 
@@ -64,11 +68,13 @@ its migration has been reviewed and tested against the live property schema.
 3. Select a month with no finalized invoices; all three financial amounts
    should be KSh 0.00.
 4. Click a property row; it should open that property's details.
-5. From the dashboard Add menu choose Add building; select a property; create
-   building, floor and 2+ units in a single save. All should appear immediately.
-6. Add a floor with multiple units to an existing building. Verify you cannot
-   submit without a unit. Create an extra unit within an existing floor.
-7. Verify landlord authentication, tenant enrollment and password-based login,
+5. From the dashboard Add menu choose Add building; pick a property **inside
+   the modal**, then enter building, floor and 2+ units.
+6. Add a floor: pick property, then building, then enter floor and 2+ units.
+7. Add units: pick property, building, existing floor, and enter units.
+   Verify that a floor/building with no units cannot be created and that
+   duplicate names, invalid rents and wrong parent IDs are rejected.
+8. Verify landlord authentication, tenant enrollment and password-based login,
    desktop navigation and mobile navigation.
 
 ## Vercel deployment (after merging/testing)
