@@ -37,12 +37,39 @@ export async function getDashboardFinancials(
   organizationId: string,
   month: string,
 ): Promise<DashboardFinancials> {
-  const { data, error } = await supabase.rpc('get_landlord_dashboard_financials', {
-    p_organization_id: organizationId,
-    p_period_start: `${month}-01`,
-  })
-  if (error) throw error
-  if (!data) throw new Error('The financial dashboard returned no data.')
+  const periodStart = `${month}-01`
+  const { data, error, status, statusText } = await supabase.rpc(
+    'get_landlord_dashboard_financials',
+    {
+      p_organization_id: organizationId,
+      p_period_start: periodStart,
+    },
+  )
+  if (error) {
+    console.error('[Dashboard financials] Supabase RPC failed', {
+      rpc: 'get_landlord_dashboard_financials',
+      organizationId,
+      periodStart,
+      httpStatus: status,
+      statusText,
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      rawError: error,
+    })
+    throw error
+  }
+  if (!data) {
+    console.error('[Dashboard financials] RPC returned no data', {
+      organizationId,
+      periodStart,
+      status,
+      statusText,
+      data,
+    })
+    throw new Error('The financial dashboard returned no data.')
+  }
   const result = data as DashboardFinancials
   return {
     ...result,
